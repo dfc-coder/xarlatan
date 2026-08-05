@@ -4,13 +4,13 @@ Guía operativa para agentes y colaboradores de Xarlatan.
 
 ## Contexto
 
-Xarlatan es un asistente de voz local en Go para Linux. El pipeline previsto es:
+Xarlatan es un asistente de voz local en Go para Linux. El pipeline actual es:
 
 ```text
-ALSA capture -> VAD -> STT -> AgentRuntime -> LLM/tools -> memory -> TTS -> ALSA playback
+ALSA capture -> VAD -> STT -> LLM/tools -> memory -> TTS -> ALSA playback
 ```
 
-El refactor se ejecuta con SDD y TDD estricto. El plan vinculante está en `docs/refactor/`.
+El refactor se ejecuta con SDD y TDD estricto. El plan vinculante está en `docs/refactor/` y el baseline reproducido en `docs/baseline/`.
 
 ## Regla principal
 
@@ -23,72 +23,41 @@ No escribir código funcional antes de:
 
 ## Flujo obligatorio
 
-### `/spec`
-
-Definir:
-
-- problema;
-- Requirement IDs;
-- alcance/no alcance;
-- criterios de aceptación;
-- errores y cancelación;
-- riesgos.
-
-### `/plan`
-
-Definir:
-
-- archivos y contratos afectados;
-- diseño mínimo;
-- tests RED;
-- trade-offs;
-- migración y rollback.
-
-### `/build`
-
-Aplicar RED -> GREEN -> REFACTOR. No mezclar mejoras no relacionadas.
-
-### `/test`
-
-Ejecutar suite focalizada, suite completa y gates aplicables de `QUALITY_GATES.md`.
-
-### `/review`
-
-Adjuntar trazabilidad, evidencia de tests, riesgos y rollback.
-
-### `/ship`
-
-Solo después de instalación, smoke y rollback validados.
+- `/spec`: problema, IDs, alcance, aceptación, errores y riesgos.
+- `/plan`: diseño mínimo, archivos, tests RED, trade-offs, migración y rollback.
+- `/build`: RED -> GREEN -> REFACTOR sin cambios ajenos al slice.
+- `/test`: suite focalizada, suite completa y gates de `docs/refactor/QUALITY_GATES.md`.
+- `/review`: trazabilidad, evidencia, riesgos residuales y rollback.
+- `/ship`: instalación, smoke y rollback validados.
 
 ## Reglas de código
 
 - Go 1.21 hasta que un spec apruebe el upgrade.
-- Usar `gofmt`; adoptar `gofumpt` solo de forma consistente en CI.
-- Errores envueltos con `%w`.
-- No usar `panic` para fallos operativos.
+- Usar `gofmt`.
+- Errores envueltos con `%w`; no usar `panic` para fallos operativos.
 - Propagar `context.Context` a red, subprocessos y operaciones largas.
 - No crear goroutines sin ownership, cancelación y test de shutdown.
-- No introducir interfaces salvo en bordes que necesiten sustitución en tests.
-- Mantener `cmd/assistant` como composition root; no alojar lógica del agente allí.
-- Mantener un único runtime en `internal/orchestrator`.
-- No registrar herramientas fuera de `ToolPolicy`.
-- No habilitar herramientas mutables por defecto.
-- No elevar contenido de usuario/tool a role `system`.
-- No loguear secretos, audio, prompts completos ni contenido de archivos por defecto.
+- No introducir interfaces salvo en bordes sustituibles en tests.
+- Mantener `cmd/assistant` como composition root.
+- El objetivo de WI-04 es un único runtime en `internal/orchestrator`.
+- No registrar tools fuera de `ToolPolicy` ni habilitar mutaciones por defecto.
+- No promover contenido de usuario/tool a role `system`.
+- No registrar secretos, audio, prompts completos ni contenido de archivos por defecto.
 
-## Reglas de seguridad
+## Reglas de seguridad objetivo
 
-- `fs_root` vacío nunca significa acceso irrestricto.
-- Paths se validan después de resolver symlinks.
+- `fs_root` vacío nunca debe significar acceso irrestricto.
+- Validar paths después de resolver symlinks.
 - La raíz del sandbox no puede borrarse.
-- Requests web no pueden acceder a loopback, private o link-local.
-- Redirects se revalidan.
-- Servicios instalados no se ejecutan como root.
+- Bloquear loopback, private y link-local en requests web y redirects.
+- Los servicios instalados no deben ejecutarse como root.
 - Todo subprocesso debe detenerse con cancelación o shutdown.
 
-## Tests
+Estas reglas describen el estado objetivo. El baseline importado todavía contiene riesgos documentados en `docs/baseline/VALIDATION.md`.
 
-Comandos base:
+## Build y pruebas
+
+Hay 19 archivos de pruebas en el baseline.
 
 ```bash
 gofmt -l .
@@ -98,36 +67,35 @@ go test -coverprofile=coverage.out ./...
 go build ./cmd/assistant ./cmd/calibrate
 ```
 
-Para una prueba focalizada:
+Prueba focalizada:
 
 ```bash
 go test -count=1 ./internal/<package> -run '^TestName$'
 ```
 
-Para lifecycle o concurrencia:
+Lifecycle o concurrencia:
 
 ```bash
 go test -race -count=1 ./internal/<package>
 go test -count=50 ./internal/<package>
 ```
 
+Targets disponibles en `Makefile`: `build`, `deps`, `all`, `models`, `llama`, `clean` y `clean-all`. Los targets `dev-*` no son operativos hasta incorporar o eliminar la dependencia de `compose.yml` en WI-08.
+
 ## PRs
 
-- Una rama por work item.
-- Un PR no mezcla slices.
-- El cuerpo usa `.github/pull_request_template.md`.
-- Incluir comando y salida esperada del RED.
-- Incluir comandos y resultado del GREEN.
-- Actualizar `TRACEABILITY.md`.
-- Declarar cualquier desviación del diseño.
-- Declarar rollback.
+- Una rama y un slice por PR.
+- Usar `.github/pull_request_template.md`.
+- Incluir evidencia RED y GREEN.
+- Actualizar `docs/refactor/TRACEABILITY.md`.
+- Declarar desviaciones, riesgos y rollback.
 
-## Prohibiciones durante el refactor
+## Prohibiciones
 
 - Reescritura completa.
-- Activar mutaciones para “probar más fácil”.
-- Deshabilitar tests existentes para hacer pasar CI.
+- Activar mutaciones para facilitar pruebas.
+- Deshabilitar tests para hacer pasar CI.
 - Ocultar fallos con retries indefinidos o sleeps arbitrarios.
-- Mantener dos orquestadores activos.
+- Mantener dos orquestadores activos después de WI-04.
 - Introducir dependencias sin justificar necesidad, licencia y superficie de seguridad.
 - Marcar un requisito completo sin evidencia.

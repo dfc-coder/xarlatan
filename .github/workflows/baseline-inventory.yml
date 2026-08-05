@@ -1,0 +1,34 @@
+name: baseline inventory
+
+on:
+  pull_request:
+    paths:
+      - "**/*.go"
+      - "go.mod"
+      - "go.sum"
+      - "docs/baseline/**"
+      - ".github/workflows/**"
+  push:
+    branches:
+      - "agent/wi-00-baseline"
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify baseline inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(find . -name '*_test.go' -type f | wc -l)" -eq 19
+          ! grep -R --exclude-dir=.git -n "github.com/local/assistant" .
+          test -f LICENSE
+          test -f docs/baseline/REPOSITORY_LAYOUT.md
+          test -f docs/baseline/VALIDATION.md
+          test -f docs/baseline/KNOWN_ISSUES.md
+          test -f docs/refactor/WI-00_EVIDENCE.md
+          test -z "$(gofmt -l cmd internal)"

@@ -1,0 +1,57 @@
+# Build artifacts
+bin/
+build/
+dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.a
+*.o
+*.obj
+*.test
+
+# Go outputs
+coverage.out
+coverage.txt
+*.coverprofile
+*.prof
+
+# Runtime logs / temp
+*.log
+logs/
+tmp/
+*.wav
+*.pcm
+
+# Local models (pesados)
+models/
+
+# Third-party sources/builds downloaded by Makefile
+vendor/
+
+# Local env/config overrides
+.env
+.env.*
+!.env.example
+config.local.yaml
+config.*.local.yaml
+
+# Tooling cache
+.cache/
+.agents/
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+# Local Pi runtime state
+.atl/
+
+# Local generated tooling state
+.pi/

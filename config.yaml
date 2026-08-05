@@ -1,0 +1,49 @@
+audio:
+  sample_rate: 16000
+  channels: 1
+  silence_threshold: 0.015   # RMS energy threshold (0.0–1.0)
+  silence_duration_ms: 1500  # ms of silence before stopping recording
+  max_duration_s: 30         # max recording duration
+  device: "default"          # ALSA device
+
+stt:
+  encoder: "models/stt/sherpa-onnx-whisper-base/base-encoder.onnx"
+  decoder: "models/stt/sherpa-onnx-whisper-base/base-decoder.onnx"
+  tokens: "models/stt/sherpa-onnx-whisper-base/base-tokens.txt"
+  language: "es"           # "auto", "es", "en", etc.
+  translate: false           # translate to English
+
+llm:
+  server_binary: "./bin/llama-server"
+  model: "models/llm/gemma-3-270m-it-Q4_K_M.gguf"
+  host: "127.0.0.1"
+  port: 8080
+  context_size: 4096
+  n_gpu_layers: 0            # 0 = CPU only; set >0 if you have GPU
+  threads: 4
+  temperature: 0.7
+  top_p: 0.9
+  max_tokens: 512
+  system_prompt: "Eres un asistente de voz inteligente y conciso. Responde siempre en el mismo idioma que el usuario. Sé breve y directo."
+
+tts:
+  model: "models/tts/vits-piper-es_ES-davefx-medium/es_ES-davefx-medium.onnx"
+  tokens: "models/tts/vits-piper-es_ES-davefx-medium/tokens.txt"
+  data_dir: "models/tts/vits-piper-es_ES-davefx-medium/espeak-ng-data"
+  speaker_id: 0
+  length_scale: 1.0          # speed: <1 faster, >1 slower
+  noise_scale: 0.667
+  noise_w: 0.8
+
+tools:
+  # Sandbox filesystem tools to this directory (empty = unrestricted)
+  fs_root: ""
+  web_search:
+    # provider: duckduckgo (no key) | brave (needs api_key) | searxng (needs base_url)
+    provider: "duckduckgo"
+    api_key: ""
+    base_url: ""             # SearXNG: e.g. "http://localhost:8080"
+
+log:
+  level: "info"              # debug | info | warn | error
+  file: ""                   # empty = stderr
