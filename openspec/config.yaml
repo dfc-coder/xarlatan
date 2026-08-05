@@ -1,0 +1,80 @@
+strict_tdd: true
+
+context: |
+  Xarlatan is a Go 1.21 local voice assistant for Linux.
+  Runtime flow: ALSA capture -> VAD -> sherpa-onnx STT -> AgentRuntime -> llama-server/tools -> memory -> sherpa-onnx TTS -> ALSA playback.
+  The remote repository must first import and freeze the analyzed source snapshot.
+  Security-critical areas: filesystem tools, web fetch, subprocess lifecycle, configuration, and systemd installation.
+  Master plan: docs/refactor/PLAN.md.
+  Work items: docs/refactor/WORK_ITEMS.md.
+  Traceability: docs/refactor/TRACEABILITY.md.
+  Quality gates: docs/refactor/QUALITY_GATES.md.
+
+rules:
+  proposal:
+    require_problem_statement: true
+    require_scope: true
+    require_non_goals: true
+    require_requirement_ids: true
+  spec:
+    require_acceptance_criteria: true
+    require_error_scenarios: true
+    require_security_impact: true
+  design:
+    require_tradeoffs: true
+    require_test_plan: true
+    require_migration_plan: true
+    require_rollback: true
+  tasks:
+    protect_review_workload: true
+    require_vertical_slices: true
+    max_active_slice_count: 1
+  apply:
+    require_failing_test_first: true
+    test_command: "go test -count=1 ./..."
+  verify:
+    test_command: "go test -count=1 ./..."
+    require_traceability_update: true
+    require_quality_gate_evidence: true
+
+testing:
+  runner:
+    command: "go test -count=1 ./..."
+    framework: "go test"
+  layers:
+    unit: "Package-level Go tests with fakes for pure logic"
+    integration: "httptest, temp filesystem, and fake subprocess integration tests"
+    security: "Filesystem, SSRF, policy, permissions, and lifecycle regression tests"
+    e2e: "Voice-turn pipeline with fake recorder, STT, agent, and speaker"
+    smoke: "Manual ALSA, sherpa-onnx, llama-server, systemd, and model validation"
+  commands:
+    unit:
+      - scope: "."
+        command: "go test -count=1 ./..."
+        framework: "go test"
+    race:
+      - scope: "pure packages"
+        command: "go test -race -count=1 ./internal/audio ./internal/config ./internal/console ./internal/llm ./internal/memory ./internal/orchestrator ./internal/tools ./internal/vad"
+        framework: "go race detector"
+    repetition:
+      - scope: "lifecycle packages"
+        command: "go test -count=50 ./internal/llm ./internal/orchestrator ./internal/tools"
+        framework: "go test"
+    coverage:
+      - scope: "."
+        command: "go test -coverprofile=coverage.out ./..."
+        framework: "go coverage"
+
+quality:
+  format: "gofmt -l ."
+  format_commands:
+    - "gofmt -l ."
+  lint: "golangci-lint run ./..."
+  lint_commands:
+    - "golangci-lint run ./..."
+  typecheck: "go vet ./..."
+  typecheck_commands:
+    - "go vet ./..."
+  build: "go build ./cmd/assistant ./cmd/calibrate"
+  build_commands:
+    - "go build ./cmd/assistant ./cmd/calibrate"
