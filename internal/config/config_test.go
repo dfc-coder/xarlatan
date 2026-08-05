@@ -8,7 +8,7 @@ import (
 )
 
 func TestLoadRejectsUnknownYAMLField(t *testing.T) {
-	t.Parallel()
+	t.Setenv("ASSISTANT_CONFIG", "")
 
 	path := writeTestConfig(t, `
 llm:
@@ -25,7 +25,7 @@ llm:
 }
 
 func TestLoadPreservesExplicitZeroTemperature(t *testing.T) {
-	t.Parallel()
+	t.Setenv("ASSISTANT_CONFIG", "")
 
 	path := writeTestConfig(t, `
 llm:
