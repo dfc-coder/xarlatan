@@ -1,0 +1,10 @@
+.git
+.cache
+.agents
+bin
+build
+dist
+models
+vendor
+*.log
+tmp
