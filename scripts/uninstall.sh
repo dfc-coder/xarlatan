@@ -5,6 +5,7 @@ DESTDIR="${DESTDIR:-}"
 PREFIX="${PREFIX:-/usr/local}"
 SYSCONFDIR="${SYSCONFDIR:-/etc}"
 LOCALSTATEDIR="${LOCALSTATEDIR:-/var/lib}"
+BACKUPDIR="${BACKUPDIR:-/var/backups/xarlatan}"
 SYSTEMD_DIR="${SYSTEMD_DIR:-/etc/systemd/system}"
 XARLATAN_USER="${XARLATAN_USER:-xarlatan}"
 XARLATAN_GROUP="${XARLATAN_GROUP:-xarlatan}"
@@ -31,7 +32,8 @@ rm -f \
 if [[ "$PURGE" == "1" ]]; then
   rm -rf \
     "$(path_in_root "$SYSCONFDIR/xarlatan")" \
-    "$(path_in_root "$LOCALSTATEDIR/xarlatan")"
+    "$(path_in_root "$LOCALSTATEDIR/xarlatan")" \
+    "$(path_in_root "$BACKUPDIR")"
   if [[ -z "$DESTDIR" ]]; then
     if id "$XARLATAN_USER" >/dev/null 2>&1; then
       userdel "$XARLATAN_USER" || true
