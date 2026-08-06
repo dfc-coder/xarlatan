@@ -33,7 +33,7 @@ assert_contains "$ROOT/docs/BETA_RUNBOOK.md" 'dakota-fedora'
 assert_contains "$ROOT/docs/BETA_RUNBOOK.md" 'bash ./scripts/beta_acceptance.sh'
 assert_contains "$ROOT/scripts/beta_acceptance.sh" 'VOICE_PIPELINE'
 assert_contains "$ROOT/scripts/beta_acceptance.sh" 'REQUIRE_SERVICE="${REQUIRE_SERVICE:-1}"'
-assert_contains "$ROOT/scripts/beta_acceptance.sh" 'configured_audio_device'
+assert_contains "$ROOT/scripts/beta_acceptance.sh" 'CONFIG_AUDIO_DEVICE'
 assert_contains "$ROOT/scripts/beta_acceptance.sh" 'The report contains no transcript'
 assert_contains "$ROOT/scripts/download_models.sh" 'Qwen/Qwen2.5-0.5B-Instruct-GGUF'
 assert_contains "$ROOT/scripts/download_models.sh" 'qwen2.5-0.5b-instruct-q4_k_m.gguf'
@@ -55,6 +55,8 @@ printf x > "$TMP/models/tts/model.onnx"
 printf x > "$TMP/models/tts/tokens.txt"
 
 cat > "$TMP/config.yaml" <<CONFIG
+audio:
+  device: "default"
 stt:
   encoder: "$TMP/models/stt/encoder.onnx"
   decoder: "$TMP/models/stt/decoder.onnx"
@@ -91,5 +93,13 @@ chmod +x "$TMP/bin/"*
 PATH="$TMP/bin:$PATH" EXPECTED_VERSION=v0.4.0-beta.1 \
   XARLATAN_BIN="$TMP/bin/assistant" LLAMA_SERVER_BIN="$TMP/bin/llama-server" \
   "$ROOT/scripts/preflight.sh" "$TMP/config.yaml" >/dev/null
+
+set +e
+PATH="$TMP/bin:$PATH" AUDIO_DEVICE="hw:9,9" NON_INTERACTIVE=1 REQUIRE_SERVICE=0 \
+  XARLATAN_BIN="$TMP/bin/assistant" LLAMA_SERVER_BIN="$TMP/bin/llama-server" \
+  "$ROOT/scripts/beta_acceptance.sh" "$TMP/config.yaml" >/dev/null 2>&1
+mismatch_rc=$?
+set -e
+[[ "$mismatch_rc" -eq 2 ]] || fail "audio-device mismatch exit=$mismatch_rc, want 2"
 
 printf 'WI-09 contracts: ok\n'
