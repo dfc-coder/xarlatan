@@ -49,6 +49,38 @@ func TestLoadAppliesDefaultTemperatureWhenOmitted(t *testing.T) {
 	}
 }
 
+func TestLoadAppliesDefaultFilesystemLimits(t *testing.T) {
+	t.Setenv("ASSISTANT_CONFIG", "")
+	path := writeTestConfig(t, "tools:\n  filesystem: {}")
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Tools.Filesystem.MaxReadBytes != 1<<20 {
+		t.Fatalf("MaxReadBytes = %d, want %d", cfg.Tools.Filesystem.MaxReadBytes, 1<<20)
+	}
+	if cfg.Tools.Filesystem.MaxWriteBytes != 1<<20 {
+		t.Fatalf("MaxWriteBytes = %d, want %d", cfg.Tools.Filesystem.MaxWriteBytes, 1<<20)
+	}
+}
+
+func TestLoadPreservesExplicitFilesystemLimits(t *testing.T) {
+	t.Setenv("ASSISTANT_CONFIG", "")
+	path := writeTestConfig(t, `
+tools:
+  filesystem:
+    max_read_bytes: 4096
+    max_write_bytes: 8192
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Tools.Filesystem.MaxReadBytes != 4096 || cfg.Tools.Filesystem.MaxWriteBytes != 8192 {
+		t.Fatalf("filesystem limits = %d/%d, want 4096/8192", cfg.Tools.Filesystem.MaxReadBytes, cfg.Tools.Filesystem.MaxWriteBytes)
+	}
+}
+
 func TestValidateRejectsInvalidLLMPort(t *testing.T) {
 	cfg := Config{Audio: AudioConfig{SampleRate: 16000, Channels: 1, SilenceDurationMS: 1, MaxDurationS: 1, Device: "default"}, LLM: LLMConfig{Host: "127.0.0.1", Port: 70000}}
 	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "llm.port") {
@@ -65,9 +97,22 @@ func TestValidateRejectsNonMonoAudio(t *testing.T) {
 
 func TestValidateRequiresAbsoluteFSRootWhenFilesystemEnabled(t *testing.T) {
 	cfg := structurallyValidConfig()
-	cfg.Tools.Filesystem = FilesystemConfig{Enabled: true, Root: "relative/path"}
+	cfg.Tools.Filesystem = FilesystemConfig{Enabled: true, Root: "relative/path", MaxReadBytes: 1, MaxWriteBytes: 1}
 	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "absolute") {
 		t.Fatalf("Validate() error = %v, want absolute root error", err)
+	}
+}
+
+func TestValidateRejectsNonPositiveFilesystemLimits(t *testing.T) {
+	cfg := operationalConfig(t)
+	cfg.Tools.Filesystem.MaxReadBytes = 0
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "max_read_bytes") {
+		t.Fatalf("Validate() error = %v, want max_read_bytes error", err)
+	}
+	cfg = operationalConfig(t)
+	cfg.Tools.Filesystem.MaxWriteBytes = -1
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "max_write_bytes") {
+		t.Fatalf("Validate() error = %v, want max_write_bytes error", err)
 	}
 }
 
@@ -99,8 +144,11 @@ func structurallyValidConfig() Config {
 		Audio: AudioConfig{SampleRate: 16000, Channels: 1, SilenceThreshold: 0.015, SilenceDurationMS: 1500, MaxDurationS: 30, Device: "default"},
 		LLM:   LLMConfig{Host: "127.0.0.1", Port: 8080, ContextSize: 4096, Threads: 4, Temperature: 0.7, TopP: 0.9, MaxTokens: 512},
 		TTS:   TTSConfig{LengthScale: 1, NoiseScale: 0.667, NoiseW: 0.8},
-		Tools: ToolsConfig{WebSearch: WebSearchConfig{Provider: "duckduckgo"}},
-		Log:   LogConfig{Level: "info"},
+		Tools: ToolsConfig{
+			Filesystem: FilesystemConfig{MaxReadBytes: 1 << 20, MaxWriteBytes: 1 << 20},
+			WebSearch:  WebSearchConfig{Provider: "duckduckgo"},
+		},
+		Log: LogConfig{Level: "info"},
 	}
 }
 
@@ -126,7 +174,7 @@ func operationalConfig(t *testing.T) Config {
 	if err := os.Mkdir(cfg.TTS.DataDir, 0o700); err != nil {
 		t.Fatalf("mkdir data dir: %v", err)
 	}
-	cfg.Tools.Filesystem = FilesystemConfig{Enabled: true, Root: dir}
+	cfg.Tools.Filesystem = FilesystemConfig{Enabled: true, Root: dir, MaxReadBytes: 1 << 20, MaxWriteBytes: 1 << 20}
 	return cfg
 }
 
