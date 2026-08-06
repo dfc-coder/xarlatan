@@ -216,9 +216,9 @@ func unmarshal(raw json.RawMessage, value any) error { return json.Unmarshal(raw
 
 // FSRead reads the content of a file.
 type FSRead struct {
-	RootDir string
+	RootDir  string
 	MaxBytes int64
-	Sandbox *FilesystemSandbox
+	Sandbox  *FilesystemSandbox
 }
 
 func (t FSRead) Name() string        { return "fs_read" }
@@ -279,9 +279,9 @@ func (t FSRead) Execute(ctx context.Context, raw json.RawMessage) Result {
 
 // FSWrite writes or appends content atomically inside the sandbox.
 type FSWrite struct {
-	RootDir string
+	RootDir  string
 	MaxBytes int64
-	Sandbox *FilesystemSandbox
+	Sandbox  *FilesystemSandbox
 }
 
 func (t FSWrite) Name() string { return "fs_write" }
