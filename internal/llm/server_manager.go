@@ -273,9 +273,15 @@ func (m *ServerManager) WaitReady(ctx context.Context) error {
 				}
 			}
 			m.mu.Lock()
-			if m.state == serverStateStarted {
-				m.state = serverStateReady
+			if m.state != serverStateStarted {
+				exitErr := m.waitErr
+				m.mu.Unlock()
+				if exitErr == nil {
+					exitErr = errProcessExitedBeforeReady
+				}
+				return lifecycleError(LifecycleErrorEarlyExit, "wait-ready", exitErr)
 			}
+			m.state = serverStateReady
 			m.mu.Unlock()
 			return nil
 		}
@@ -378,18 +384,9 @@ func (m *ServerManager) stop(ctx context.Context) error {
 	}
 
 	signalErr := process.Signal(os.Interrupt)
-	if signalErr == nil {
-		if waitChannel(ctx, m.waitDone, m.cfg.ShutdownTimeout) {
-			m.markStopped()
-			return nil
-		}
-	} else {
-		select {
-		case <-m.waitDone:
-			m.markStopped()
-			return nil
-		default:
-		}
+	if waitChannel(ctx, m.waitDone, m.cfg.ShutdownTimeout) {
+		m.markStopped()
+		return nil
 	}
 
 	killErr := process.Kill()
