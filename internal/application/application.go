@@ -305,11 +305,15 @@ func (a *Application) RunTurn(ctx context.Context) (result Result, err error) {
 }
 
 func (a *Application) fail(ctx context.Context, recorder *turnRecorder, result Result, code ErrorCode, err error) (Result, error) {
-	if ctxErr := ctx.Err(); ctxErr != nil {
+	contextErr := ctx.Err()
+	if contextErr == nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+		contextErr = err
+	}
+	if contextErr != nil {
 		recorder.emit(StateStopping)
 		result.Trace.Outcome = "cancelled"
-		result.Trace.ErrorCode = contextCode(ctxErr)
-		return result, contextApplicationError(ctxErr)
+		result.Trace.ErrorCode = contextCode(contextErr)
+		return result, contextApplicationError(contextErr)
 	}
 	result.Trace.Outcome = "error"
 	result.Trace.ErrorCode = code
@@ -318,7 +322,7 @@ func (a *Application) fail(ctx context.Context, recorder *turnRecorder, result R
 }
 
 func invalidApplication(message string) error {
-	return &Error{Code: ErrorInvalidApplication, Err: fmt.Errorf("%s", message)}
+	return &Error{Code: ErrorInvalidApplication, Err: errors.New(message)}
 }
 
 func contextApplicationError(err error) error {
