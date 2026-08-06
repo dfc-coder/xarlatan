@@ -63,7 +63,7 @@ El fallo contractual esperado era la ausencia de esos archivos y de los contrato
 
 ## Verificación local del contrato operativo
 
-Ejecutado sobre un árbol descartable reconstruido con los archivos del PR:
+Ejecutado sobre un árbol descartable reconstruido con los archivos del PR y repetido durante WI-09:
 
 ```text
 bash -n: success
@@ -75,6 +75,7 @@ purge: success
 rollback de primera instalación: success
 systemd-analyze verify: success con binario de prueba instalado
 systemd-analyze security --offline=yes: exposición 4.2, clasificación OK
+systemd-analyze security --offline=yes --threshold=50: success
 ```
 
 ## Gates CI
@@ -85,14 +86,17 @@ go vet ./...
 go test -count=1 -coverprofile=coverage.out ./...
 go test -count=20 ./internal/orchestrator ./internal/tools ./internal/llm ./internal/memory ./internal/audio ./internal/conversation ./internal/application
 go test -race -count=1 ./internal/orchestrator ./internal/tools ./internal/llm ./internal/memory ./internal/audio ./internal/conversation ./internal/application
-make clean build VERSION=0.4.0-ci
+make clean build VERSION=v0.4.0-ci
+test "$(./bin/assistant -version)" = "assistant v0.4.0-ci"
 shellcheck scripts/install.sh scripts/uninstall.sh scripts/rollback.sh scripts/tests/wi08_contract_test.sh
 bash scripts/tests/wi08_contract_test.sh
 systemd-analyze verify packaging/systemd/xarlatan.service
-systemd-analyze security --offline=yes --threshold=5 packaging/systemd/xarlatan.service
+systemd-analyze security --offline=yes --threshold=50 packaging/systemd/xarlatan.service
 ```
 
-Los IDs finales de CI, artifact y digest se completan después del último review.
+`systemd-analyze --threshold` usa una escala porcentual 0..100. El valor `50` representa una exposición máxima de 5,0/10; el valor anterior `5` era incorrecto y fallaba frente a una unidad con exposición 4,2/10.
+
+GitHub Actions no registró ejecuciones para PR #30, por lo que no existen IDs de run o artifact válidos para declarar. La limitación se mantiene explícita.
 
 ## Riesgo residual
 
