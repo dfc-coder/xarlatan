@@ -17,6 +17,14 @@ func TestSafePathRejectsTraversal(t *testing.T) {
 	}
 }
 
+func TestSafePathRejectsAbsoluteExternalPath(t *testing.T) {
+	root := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "outside.txt")
+	if resolved, err := safePath(root, outside); err == nil {
+		t.Fatalf("safePath() = %q, nil; want absolute path escape error", resolved)
+	}
+}
+
 func TestSafePathRejectsSymlinkEscape(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()
@@ -30,6 +38,25 @@ func TestSafePathRejectsSymlinkEscape(t *testing.T) {
 
 	if resolved, err := safePath(root, "link"); err == nil {
 		t.Fatalf("safePath() = %q, nil; want symlink escape error", resolved)
+	}
+}
+
+func TestSafePathAllowsInternalSymlink(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "target.txt")
+	if err := os.WriteFile(target, []byte("safe"), 0o600); err != nil {
+		t.Fatalf("write target: %v", err)
+	}
+	if err := os.Symlink(target, filepath.Join(root, "link")); err != nil {
+		t.Fatalf("create symlink: %v", err)
+	}
+
+	resolved, err := safePath(root, "link")
+	if err != nil {
+		t.Fatalf("safePath() error = %v, want internal symlink allowed", err)
+	}
+	if resolved != target {
+		t.Fatalf("safePath() = %q, want %q", resolved, target)
 	}
 }
 
