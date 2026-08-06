@@ -148,6 +148,9 @@ func (r *AgentRuntime) Run(ctx context.Context, request Request) (Result, error)
 		if err != nil {
 			round.Error = err.Error()
 			round.StopReason = StopModelError
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				round.StopReason = stopReasonFromContext(ctxErr)
+			}
 			round.Duration = positiveDuration(time.Since(roundStarted))
 			result.Trace.Rounds = append(result.Trace.Rounds, round)
 			result.Trace.StopReason = round.StopReason
@@ -203,13 +206,18 @@ func (r *AgentRuntime) Run(ctx context.Context, request Request) (Result, error)
 			})
 		}
 		toolRounds++
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			round.StopReason = stopReasonFromContext(ctxErr)
+		}
 		round.Duration = positiveDuration(time.Since(roundStarted))
 		result.Trace.Rounds = append(result.Trace.Rounds, round)
 		result.Trace.ToolRounds = toolRounds
+		if round.StopReason != "" {
+			result.Trace.StopReason = round.StopReason
+		}
 		r.observer.OnRound(round)
 
 		if err := ctx.Err(); err != nil {
-			result.Trace.StopReason = stopReasonFromContext(err)
 			return result, runtimeErrorFromContext(roundNumber, err)
 		}
 		input = ""
