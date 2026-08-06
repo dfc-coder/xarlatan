@@ -23,14 +23,19 @@ bash -n \
   "$ROOT/scripts/preflight.sh" \
   "$ROOT/scripts/beta_acceptance.sh" \
   "$ROOT/scripts/package_release.sh" \
-  "$ROOT/scripts/download_models.sh"
+  "$ROOT/scripts/download_models.sh" \
+  "$ROOT/scripts/install.sh"
 
 assert_contains "$ROOT/Makefile" 'release-candidate:'
 assert_contains "$ROOT/Makefile" 'models: ## Download and validate default runtime models'
 assert_not_contains "$ROOT/Makefile" 'models: models/stt models/tts models/llm'
+assert_contains "$ROOT/Makefile" 'BUILD_VERSION := $(patsubst v%,%,$(VERSION))'
+assert_contains "$ROOT/Makefile" '$(BIN_DIR)/assistant: FORCE'
+assert_contains "$ROOT/Makefile" 'EXPECTED_VERSION="v$(BUILD_VERSION)"'
 assert_contains "$ROOT/.github/workflows/release-candidate.yml" 'v*-beta.*'
 assert_contains "$ROOT/docs/BETA_RUNBOOK.md" 'dakota-fedora'
-assert_contains "$ROOT/docs/BETA_RUNBOOK.md" 'bash ./scripts/beta_acceptance.sh'
+assert_contains "$ROOT/docs/BETA_RUNBOOK.md" 'bash ./scripts/beta_acceptance.sh ./config.yaml'
+assert_not_contains "$ROOT/docs/BETA_RUNBOOK.md" 'bash ./scripts/beta_acceptance.sh /etc/xarlatan/config.yaml'
 assert_contains "$ROOT/scripts/beta_acceptance.sh" 'VOICE_PIPELINE'
 assert_contains "$ROOT/scripts/beta_acceptance.sh" 'REQUIRE_SERVICE="${REQUIRE_SERVICE:-1}"'
 assert_contains "$ROOT/scripts/beta_acceptance.sh" 'CONFIG_AUDIO_DEVICE'
@@ -41,6 +46,8 @@ assert_contains "$ROOT/scripts/download_models.sh" '74a4da8c9fdbcd15bd1f6d01d621
 assert_contains "$ROOT/scripts/download_models.sh" 'download_atomic'
 assert_contains "$ROOT/scripts/package_release.sh" 'download_models.sh'
 assert_contains "$ROOT/scripts/package_release.sh" 'BETA_RUNBOOK.md'
+assert_contains "$ROOT/scripts/install.sh" 'find "$DATA_DIR/models" -type d -exec chmod 0750 {} +'
+assert_contains "$ROOT/scripts/install.sh" 'find "$DATA_DIR/models" -type f -exec chmod 0640 {} +'
 assert_contains "$ROOT/config.yaml" 'qwen2.5-0.5b-instruct-q4_k_m.gguf'
 assert_contains "$ROOT/packaging/config.yaml" 'qwen2.5-0.5b-instruct-q4_k_m.gguf'
 assert_not_contains "$ROOT/config.yaml" 'gemma-3-270m-it-Q4_K_M.gguf'
