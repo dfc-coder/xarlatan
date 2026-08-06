@@ -4,30 +4,20 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
-	"time"
 )
-
-// webClient is shared across all web tools — one instance, no duplication.
-var webClient = &http.Client{
-	Timeout: 15 * time.Second,
-	Transport: &http.Transport{
-		MaxIdleConnsPerHost: 4,
-	},
-}
 
 // ─── web_search ───────────────────────────────────────────────────────────────
 
 // WebSearch searches the internet. Provider is selected by Provider field.
 // Supported: "duckduckgo" (no key), "brave" (APIKey), "searxng" (BaseURL).
 type WebSearch struct {
-	Provider string // "duckduckgo" | "brave" | "searxng"
-	APIKey   string // Brave
-	BaseURL  string // SearXNG
+	Provider string          // "duckduckgo" | "brave" | "searxng"
+	APIKey   string          // Brave
+	BaseURL  string          // SearXNG
+	Client   *SafeHTTPClient // optional injection; secure shared default otherwise
 }
 
 func (t *WebSearch) Name() string { return "web_search" }
@@ -65,7 +55,7 @@ func (t *WebSearch) Execute(ctx context.Context, raw json.RawMessage) Result {
 func (t *WebSearch) duckduckgo(ctx context.Context, query string, n int) Result {
 	u := "https://api.duckduckgo.com/?q=" + url.QueryEscape(query) +
 		"&format=json&no_html=1&skip_disambig=1"
-	body, err := httpGet(ctx, u, nil)
+	body, err := t.httpGet(ctx, u, nil)
 	if err != nil {
 		return Errorf("DDG: %v", err)
 	}
@@ -78,7 +68,9 @@ func (t *WebSearch) duckduckgo(ctx context.Context, query string, n int) Result 
 			FirstURL string `json:"FirstURL"`
 		} `json:"RelatedTopics"`
 	}
-	_ = json.Unmarshal(body, &d)
+	if err := json.Unmarshal(body, &d); err != nil {
+		return Errorf("DDG parse: %v", err)
+	}
 
 	var sb strings.Builder
 	count := 0
@@ -111,7 +103,7 @@ func (t *WebSearch) brave(ctx context.Context, query string, n int) Result {
 	}
 	u := fmt.Sprintf("https://api.search.brave.com/res/v1/web/search?q=%s&count=%d&text_decorations=false",
 		url.QueryEscape(query), n)
-	body, err := httpGet(ctx, u, map[string]string{"X-Subscription-Token": t.APIKey})
+	body, err := t.httpGet(ctx, u, map[string]string{"X-Subscription-Token": t.APIKey})
 	if err != nil {
 		return Errorf("Brave: %v", err)
 	}
@@ -142,7 +134,7 @@ func (t *WebSearch) searxng(ctx context.Context, query string, n int) Result {
 		return Errorf("SearXNG requires base_url in config.yaml tools.web_search.base_url")
 	}
 	u := strings.TrimRight(t.BaseURL, "/") + "/search?q=" + url.QueryEscape(query) + "&format=json"
-	body, err := httpGet(ctx, u, nil)
+	body, err := t.httpGet(ctx, u, nil)
 	if err != nil {
 		return Errorf("SearXNG: %v", err)
 	}
@@ -169,19 +161,47 @@ func (t *WebSearch) searxng(ctx context.Context, query string, n int) Result {
 	return Result{Content: sb.String()}
 }
 
+func (t *WebSearch) httpGet(
+	ctx context.Context,
+	rawURL string,
+	headers map[string]string,
+) ([]byte, error) {
+	response, err := t.httpClient().Get(ctx, rawURL, headers, 0)
+	if err != nil {
+		return nil, err
+	}
+	if response.Truncated {
+		return nil, &HTTPError{
+			Code: HTTPBodyLimitExceeded,
+			URL:  response.FinalURL,
+			Err:  fmt.Errorf("structured response exceeded %d bytes", t.httpClient().config.MaxBodyBytes),
+		}
+	}
+	return response.Body, nil
+}
+
+func (t *WebSearch) httpClient() *SafeHTTPClient {
+	if t != nil && t.Client != nil {
+		return t.Client
+	}
+	return defaultSafeHTTPClient
+}
+
 // ─── web_fetch ────────────────────────────────────────────────────────────────
 
 // WebFetch fetches a URL and returns its text content.
-type WebFetch struct{}
+type WebFetch struct {
+	Client *SafeHTTPClient // optional injection; secure shared default otherwise
+}
 
 func (t WebFetch) Name() string { return "web_fetch" }
 func (t WebFetch) Description() string {
-	return "Fetch text content from a URL. Strips HTML. Use after web_search to read full articles."
+	return "Fetch bounded text content from a public HTTP(S) URL. Private and local destinations are blocked."
 }
 func (t WebFetch) Schema() ParameterSchema {
 	return NewSchema([]string{"url"}, map[string]Property{
-		"url":       {Type: "string", Description: "URL to fetch (http/https)"},
-		"max_bytes": {Type: "integer", Description: "Max bytes to return (default 16384)"},
+		"url":       {Type: "string", Description: "Public URL to fetch (http/https)"},
+		"max_bytes": {Type: "integer", Description: "Max response bytes to return (default 16384, hard max 524288)"},
 	})
 }
 func (t WebFetch) Execute(ctx context.Context, raw json.RawMessage) Result {
@@ -192,49 +212,28 @@ func (t WebFetch) Execute(ctx context.Context, raw json.RawMessage) Result {
 	if err := unmarshal(raw, &a); err != nil {
 		return Errorf("invalid args: %v", err)
 	}
-	if !strings.HasPrefix(a.URL, "http") {
-		return Errorf("URL must start with http:// or https://")
-	}
 	if a.MaxBytes <= 0 {
 		a.MaxBytes = 16384
 	}
-	body, err := httpGet(ctx, a.URL, map[string]string{
-		"User-Agent": "Mozilla/5.0 (compatible; VoiceAssistant/1.0)",
-		"Accept":     "text/html,text/plain,application/json",
-	})
+	response, err := t.httpClient().Get(ctx, a.URL, map[string]string{
+		"Accept": "text/html,text/plain,application/json,application/xml;q=0.9",
+	}, int64(a.MaxBytes))
 	if err != nil {
 		return Errorf("%v", err)
 	}
-	text := stripHTML(string(body))
-	runes := []rune(text)
+	text := stripHTML(string(response.Body))
 	suffix := ""
-	if len(runes) > a.MaxBytes {
-		runes = runes[:a.MaxBytes]
+	if response.Truncated {
 		suffix = "\n[truncated]"
 	}
-	return Result{Content: fmt.Sprintf("Content from %s:\n\n%s%s", a.URL, string(runes), suffix)}
+	return Result{Content: fmt.Sprintf("Content from %s:\n\n%s%s", response.FinalURL, text, suffix)}
 }
 
-// ─── Shared HTTP helper ───────────────────────────────────────────────────────
-
-func httpGet(ctx context.Context, rawURL string, headers map[string]string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
-	if err != nil {
-		return nil, err
+func (t WebFetch) httpClient() *SafeHTTPClient {
+	if t.Client != nil {
+		return t.Client
 	}
-	req.Header.Set("Accept", "application/json")
-	for k, v := range headers {
-		req.Header.Set(k, v)
-	}
-	resp, err := webClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
-	}
-	return io.ReadAll(io.LimitReader(resp.Body, 512*1024))
+	return defaultSafeHTTPClient
 }
 
 // ─── HTML stripping ───────────────────────────────────────────────────────────
