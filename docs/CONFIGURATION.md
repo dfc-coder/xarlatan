@@ -4,6 +4,27 @@ Xarlatan carga YAML en modo estricto. Los campos desconocidos, documentos múlti
 
 `ASSISTANT_CONFIG` tiene prioridad sobre el flag `-config`.
 
+## AgentRuntime
+
+El loop LLM/tools se ejecuta exclusivamente mediante `internal/orchestrator.AgentRuntime`.
+
+El máximo de rondas que pueden ejecutar tools durante un turno se configura mediante CLI:
+
+```bash
+assistant -max-tool-rounds=4
+```
+
+El default es `4`. El valor debe ser mayor que cero y se valida antes de construir STT, LLM, TTS o tools.
+
+Una ronda de tool comprende:
+
+1. respuesta del modelo con una o más llamadas;
+2. ejecución secuencial de esas llamadas en el orden recibido;
+3. incorporación de mensajes `role=tool` conservando cada `tool_call_id`;
+4. nueva llamada al modelo.
+
+Una respuesta directa no consume el budget. Cuando el modelo solicita una ronda adicional después de alcanzar el límite, el runtime devuelve `round_limit` y no ejecuta esas nuevas llamadas.
+
 ## Filesystem tools
 
 Filesystem está deshabilitado por defecto:
@@ -109,6 +130,7 @@ No existen excepciones implícitas para servicios privados. Un SearXNG local o d
 
 Antes de iniciar, se comprueba:
 
+- límite de tool rounds positivo;
 - audio mono y parámetros positivos;
 - host, puerto y parámetros LLM;
 - provider de búsqueda y sus campos requeridos;
