@@ -44,7 +44,7 @@ func TestDeleteRejectsSandboxRoot(t *testing.T) {
 		t.Fatalf("write marker: %v", err)
 	}
 
-	result := (FSDelete{RootDir: root}).Execute(context.Background(), json.RawMessage(`{"path":".","recursive":true}`))
+	result := (FSDelete{RootDir: root}).Execute(context.Background(), deleteTestArgs(t, "."))
 	if !result.IsError {
 		t.Fatalf("FSDelete.Execute() = %#v, want root protection error", result)
 	}
@@ -60,11 +60,23 @@ func TestDeleteRejectsEmptyPath(t *testing.T) {
 		t.Fatalf("write marker: %v", err)
 	}
 
-	result := (FSDelete{RootDir: root}).Execute(context.Background(), json.RawMessage(`{"path":"","recursive":true}`))
+	result := (FSDelete{RootDir: root}).Execute(context.Background(), deleteTestArgs(t, ""))
 	if !result.IsError {
 		t.Fatalf("FSDelete.Execute() = %#v, want empty path error", result)
 	}
 	if _, err := os.Stat(marker); err != nil {
 		t.Fatalf("sandbox root was modified: %v", err)
 	}
+}
+
+func deleteTestArgs(t *testing.T, path string) json.RawMessage {
+	t.Helper()
+	payload, err := json.Marshal(map[string]any{
+		"path":      path,
+		"recursive": true,
+	})
+	if err != nil {
+		t.Fatalf("marshal delete args: %v", err)
+	}
+	return payload
 }
