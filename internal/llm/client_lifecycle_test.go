@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -75,4 +76,9 @@ func TestClientHasNoProcessLifecycle(t *testing.T) {
 			t.Fatalf("%s unexpectedly exposes process lifecycle method %s", clientType, forbidden)
 		}
 	}
+}
+
+func hasMethod(value any, name string) bool {
+	_, ok := reflect.TypeOf(value).MethodByName(name)
+	return ok
 }
