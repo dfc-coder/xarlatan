@@ -105,7 +105,8 @@ jobs:
         run: |
           sudo install -Dm755 /bin/true /usr/local/bin/xarlatan
           sudo systemd-analyze verify packaging/systemd/xarlatan.service
-          sudo systemd-analyze security --offline=yes --threshold=5 packaging/systemd/xarlatan.service
+          # systemd-analyze uses a 0..100 percentage threshold; 50 corresponds to 5.0/10.
+          sudo systemd-analyze security --offline=yes --threshold=50 packaging/systemd/xarlatan.service
 
       - name: Upload coverage
         uses: actions/upload-artifact@v4
