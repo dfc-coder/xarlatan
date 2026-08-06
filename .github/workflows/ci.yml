@@ -89,8 +89,11 @@ jobs:
       - name: Race-test focused packages
         run: go test -race -count=1 ./internal/orchestrator ./internal/tools ./internal/llm ./internal/memory ./internal/audio ./internal/conversation ./internal/application
 
-      - name: Build commands
-        run: go build ./cmd/assistant ./cmd/calibrate
+      - name: Build and verify version
+        run: |
+          make clean build VERSION=0.4.0-ci
+          test "$(./bin/assistant -version)" = "assistant v0.4.0-ci"
+          test -x ./bin/calibrate
 
       - name: Verify WI-08 shell contracts
         run: |
