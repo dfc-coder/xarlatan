@@ -53,11 +53,11 @@ jobs:
       - name: Test
         run: go test -count=1 -coverprofile=coverage.out ./...
 
-      - name: Repeat tool security tests
-        run: go test -count=20 ./internal/tools
+      - name: Repeat agent and tool tests
+        run: go test -count=20 ./internal/orchestrator ./internal/tools
 
-      - name: Race-test tool security
-        run: go test -race -count=1 ./internal/tools
+      - name: Race-test agent and tools
+        run: go test -race -count=1 ./internal/orchestrator ./internal/tools
 
       - name: Build commands
         run: go build ./cmd/assistant ./cmd/calibrate
