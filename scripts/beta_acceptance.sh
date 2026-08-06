@@ -6,6 +6,7 @@ CONFIG="${1:-${XARLATAN_CONFIG:-}}"
 AUDIO_DEVICE="${AUDIO_DEVICE:-default}"
 VOICE_WINDOW_SECONDS="${VOICE_WINDOW_SECONDS:-45}"
 NON_INTERACTIVE="${NON_INTERACTIVE:-0}"
+REQUIRE_SERVICE="${REQUIRE_SERVICE:-1}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPORT="${REPORT:-$PWD/beta-acceptance-$(date -u +%Y%m%dT%H%M%SZ).md}"
 TMP="$(mktemp -d)"
@@ -25,7 +26,7 @@ fi
 STATUS=PASS
 AUDIO_CAPTURE=FAIL
 AUDIO_PLAYBACK=PENDING
-SERVICE_SMOKE=SKIPPED
+SERVICE_SMOKE=PENDING
 VOICE_PIPELINE=PENDING
 
 mark_fail() { STATUS=FAIL; }
@@ -77,10 +78,18 @@ if command -v systemctl >/dev/null 2>&1 && [[ -f /etc/systemd/system/xarlatan.se
       SERVICE_SMOKE=FAIL
       mark_fail
     fi
+    "${SUDO[@]}" systemctl status xarlatan.service --no-pager > "$TMP/service-status.log" 2>&1 || true
     "${SUDO[@]}" systemctl stop xarlatan.service || true
   else
     SERVICE_SMOKE=FAIL
     mark_fail
+  fi
+else
+  if [[ "$REQUIRE_SERVICE" == 1 ]]; then
+    SERVICE_SMOKE=FAIL
+    mark_fail
+  else
+    SERVICE_SMOKE=SKIPPED
   fi
 fi
 
@@ -129,7 +138,7 @@ The report contains no transcript, prompt, model response or secret.
 REPORT_EOF
 
 printf '\nAcceptance report: %s\n' "$REPORT"
-if [[ "$NON_INTERACTIVE" == 1 && ( "$AUDIO_PLAYBACK" == PENDING || "$VOICE_PIPELINE" == PENDING ) ]]; then
+if [[ "$NON_INTERACTIVE" == 1 ]]; then
   exit 2
 fi
 [[ "$STATUS" == PASS ]]
