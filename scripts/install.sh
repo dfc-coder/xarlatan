@@ -91,11 +91,15 @@ install_artifacts() {
 }
 
 set_permissions() {
-  [[ "$SKIP_USER" == "1" || -n "$DESTDIR" ]] && return 0
-  chown root:"$XARLATAN_GROUP" "$CONFIG_DIR/config.yaml"
   chmod 0640 "$CONFIG_DIR/config.yaml"
-  chown -R "$XARLATAN_USER":"$XARLATAN_GROUP" "$DATA_DIR"
   chmod 0750 "$DATA_DIR" "$DATA_DIR/models"
+  find "$DATA_DIR/models" -type d -exec chmod 0750 {} +
+  find "$DATA_DIR/models" -type f -exec chmod 0640 {} +
+
+  [[ "$SKIP_USER" == "1" || -n "$DESTDIR" ]] && return 0
+
+  chown root:"$XARLATAN_GROUP" "$CONFIG_DIR/config.yaml"
+  chown -R "$XARLATAN_USER":"$XARLATAN_GROUP" "$DATA_DIR"
   chown -R root:root "$ROLLBACK_DIR"
   chmod 0700 "$ROLLBACK_DIR"
 }
