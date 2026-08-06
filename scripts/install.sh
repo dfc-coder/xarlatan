@@ -96,15 +96,25 @@ stop_legacy_service() {
 }
 
 install_runtime_libraries() {
-  rm -rf "$LIB_DIR"
-  mkdir -p "$LIB_DIR"
+  local runtime_stage
+  runtime_stage="$(mktemp -d)"
+
   if [[ -d "$ROOT/lib" ]] && compgen -G "$ROOT/lib/*" >/dev/null; then
     while IFS= read -r -d '' library; do
-      install -m755 "$library" "$LIB_DIR/$(basename "$library")"
+      install -m755 "$library" "$runtime_stage/$(basename "$library")"
     done < <(find "$ROOT/lib" -maxdepth 1 -type f -print0)
-  else
-    bash "$ROOT/scripts/collect_runtime_libs.sh" "$ROOT/bin/assistant" "$LIB_DIR"
+  elif ! bash "$ROOT/scripts/collect_runtime_libs.sh" "$ROOT/bin/assistant" "$runtime_stage"; then
+    rm -rf "$runtime_stage"
+    die "could not collect runtime libraries"
   fi
+
+  rm -rf "$LIB_DIR"
+  mkdir -p "$LIB_DIR"
+  while IFS= read -r -d '' library; do
+    install -m755 "$library" "$LIB_DIR/$(basename "$library")"
+  done < <(find "$runtime_stage" -maxdepth 1 -type f -print0)
+  rm -rf "$runtime_stage"
+
   install -d -m755 "$(dirname "$LDSO_CONF_FILE")"
   printf '%s\n' "$PREFIX/lib/xarlatan" > "$LDSO_CONF_FILE"
   chmod 0644 "$LDSO_CONF_FILE"
