@@ -2,12 +2,12 @@
 set -euo pipefail
 
 DESTDIR="${DESTDIR:-}"
-LOCALSTATEDIR="${LOCALSTATEDIR:-/var/lib}"
+BACKUPDIR="${BACKUPDIR:-/var/backups/xarlatan}"
 SKIP_SYSTEMD="${SKIP_SYSTEMD:-0}"
 
 path_in_root() { printf '%s%s' "$DESTDIR" "$1"; }
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
-ROLLBACK_DIR="$(path_in_root "$LOCALSTATEDIR/xarlatan/rollback")"
+ROLLBACK_DIR="$(path_in_root "$BACKUPDIR")"
 MANIFEST="$ROLLBACK_DIR/manifest"
 
 if [[ -z "$DESTDIR" && "$(id -u)" -ne 0 ]]; then
