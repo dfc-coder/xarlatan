@@ -2,7 +2,7 @@
 
 ## Objetivo
 
-Cerrar la Fase 1 con un release candidate reproducible y una aceptación física ejecutable en la máquina Fedora objetivo, sin confundir validación automatizada con pruebas reales de micrófono, altavoz y modelos.
+Cerrar la Fase 1 con un release candidate reproducible y una aceptación física ejecutable en Fedora, sin confundir validación automatizada con pruebas reales de micrófono, altavoz y modelos.
 
 ## Versión
 
@@ -18,44 +18,44 @@ La primera beta candidata usa `v0.4.0-beta.1`.
 - **REL-006:** no existen issues P0 abiertos ni excepciones a sandbox, SSRF, servicio no root, pérdida de datos o procesos huérfanos.
 - **REL-007:** el changelog enumera cambios incompatibles y límites conocidos.
 - **REL-008:** el paquete de release se genera de forma determinista desde una versión/tag y publica SHA-256.
+- **REL-009:** los modelos por defecto se descargan desde fuentes públicas o autenticadas explícitamente, a temporales y con checksum antes de instalarse.
 
 ## Estados de aceptación
 
 ### RC automatizado
 
-Se alcanza cuando CI o una ejecución equivalente confirma:
-
 ```text
 gofmt + vet + suite + coverage + repeat + race
 build/version + shellcheck + install contracts
 systemd verify/security + release package/checksum
+model source + atomic download + checksum contract
 ```
 
 ### Beta aceptada en la máquina
 
-Se alcanza únicamente cuando `scripts/beta_acceptance.sh` genera un reporte `PASS` que confirma:
+Se alcanza únicamente cuando `bash scripts/beta_acceptance.sh` genera un reporte `PASS` que confirma:
 
 1. preflight y modelos;
 2. captura ALSA real;
-3. reproducción ALSA real confirmada por el operador;
+3. reproducción ALSA real confirmada;
 4. arranque y parada del servicio sin root ni crash inmediato;
-5. interacción foreground completa confirmada por el operador: voz -> STT -> LLM -> TTS -> audio;
+5. interacción completa `voz -> STT -> LLM -> TTS -> audio`;
 6. rollback disponible.
-
-El repositorio puede entregar el RC y habilitar la primera prueba, pero no puede afirmar REL-003 sin ejecutar ese reporte en el hardware objetivo.
 
 ## Máquina objetivo inicial
 
 - host: `dakota-fedora`;
 - Linux x86_64 / Fedora;
-- checkout conocido: `~/Documents/projects/assistant`;
-- ejecución histórica: `./bin/assistant -config config.yaml -log debug`;
-- primer smoke recomendado en foreground antes de habilitar systemd;
-- LLM inicial: Gemma 3 270M Q4_K_M, CPU-first;
+- checkout: `~/Documents/projects/xarlatan`;
+- primer smoke en foreground antes de habilitar systemd;
+- LLM inicial: Qwen2.5 0.5B Instruct Q4_K_M, CPU-first;
+- repositorio: `Qwen/Qwen2.5-0.5B-Instruct-GGUF`;
+- SHA-256 fijado en `scripts/download_models.sh`;
 - herramientas deshabilitadas durante aceptación.
 
 ## Entregables
 
+- `scripts/download_models.sh` con descarga atómica y checksum;
 - `scripts/preflight.sh`;
 - `scripts/beta_acceptance.sh`;
 - `scripts/package_release.sh`;
@@ -64,7 +64,7 @@ El repositorio puede entregar el RC y habilitar la primera prueba, pero no puede
 - `CHANGELOG.md`;
 - `docs/refactor/WI-09_EVIDENCE.md`;
 - workflow de release candidate;
-- target `make release-candidate`.
+- targets `make models`, `make release-candidate`, `make preflight` y `make beta-acceptance`.
 
 ## Gates
 
@@ -74,7 +74,7 @@ go vet ./...
 go test -count=1 -coverprofile=coverage.out ./...
 go test -count=20 ./internal/orchestrator ./internal/tools ./internal/llm ./internal/memory ./internal/audio ./internal/conversation ./internal/application
 go test -race -count=1 ./internal/orchestrator ./internal/tools ./internal/llm ./internal/memory ./internal/audio ./internal/conversation ./internal/application
-shellcheck scripts/*.sh scripts/tests/*.sh
+shellcheck scripts/install.sh scripts/uninstall.sh scripts/rollback.sh scripts/download_models.sh scripts/preflight.sh scripts/beta_acceptance.sh scripts/package_release.sh scripts/tests/wi08_contract_test.sh scripts/tests/wi09_contract_test.sh
 bash scripts/tests/wi08_contract_test.sh
 bash scripts/tests/wi09_contract_test.sh
 make release-candidate VERSION=v0.4.0-beta.1
@@ -83,14 +83,16 @@ systemd-analyze verify packaging/systemd/xarlatan.service
 systemd-analyze security --offline=yes --threshold=50 packaging/systemd/xarlatan.service
 ```
 
-`systemd-analyze --threshold` usa una escala porcentual 0..100; `50` representa una exposición máxima de 5,0/10.
+`systemd-analyze --threshold` usa porcentaje; `50` representa una exposición máxima de 5,0/10.
 
 ## Política de cierre
 
-WI-09 se integra para entregar el beta candidate y el harness físico. El issue #12 solo se cierra como completado después de adjuntar un reporte `PASS` de `scripts/beta_acceptance.sh` ejecutado en `dakota-fedora`. Hasta entonces el estado correcto es **RC listo / aceptación física pendiente**.
+El issue #12 solo se cierra después de adjuntar un reporte `PASS` ejecutado en `dakota-fedora`. Un fallo de descarga, permisos, audio, modelo o servicio mantiene WI-09 abierto y genera un hotfix reproducible.
 
 ## Rollback
 
-- Antes de habilitar el servicio: ejecutar desde el checkout anterior o eliminar el paquete candidato.
-- Después de instalar: `sudo make rollback`.
-- Si el servicio no inicia: `sudo systemctl disable --now xarlatan`, revisar `journalctl -u xarlatan`, corregir dispositivo/config o ejecutar rollback.
+```bash
+sudo systemctl disable --now xarlatan 2>/dev/null || true
+sudo make rollback
+sudo systemctl daemon-reload
+```
