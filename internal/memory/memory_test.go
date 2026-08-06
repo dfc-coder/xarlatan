@@ -96,8 +96,8 @@ func TestMemoryPreservesToolExchange(t *testing.T) {
 	toolTurn := []llm.Message{
 		{Role: "user", Content: "check both sources"},
 		{Role: "assistant", ToolCalls: []tools.ToolCall{
-			{ID: "call-a", Type: "function", Function: tools.CallFunction{Name: "first", Arguments: json.RawMessage(`{"q":"a"}`)}},
-			{ID: "call-b", Type: "function", Function: tools.CallFunction{Name: "second", Arguments: json.RawMessage(`{"q":"b"}`)}},
+			{ID: "call-a", Type: "function", Function: tools.CallFunction{Name: "first", Arguments: json.RawMessage("{\"q\":\"a\"}")}},
+			{ID: "call-b", Type: "function", Function: tools.CallFunction{Name: "second", Arguments: json.RawMessage("{\"q\":\"b\"}")}},
 		}},
 		{Role: "tool", ToolCallID: "call-a", Content: "result-a"},
 		{Role: "tool", ToolCallID: "call-b", Content: "result-b"},
