@@ -7,7 +7,7 @@ assert_file() { [[ -f "$1" ]] || fail "missing file: $1"; }
 assert_contains() { grep -Fq -- "$2" "$1" || fail "$1 missing: $2"; }
 assert_not_contains() { ! grep -Fq -- "$2" "$1" || fail "$1 unexpectedly contains: $2"; }
 staged_hashes() {
-  find "$1" -type f ! -path '*/rollback/*' -print0 | sort -z | xargs -0 sha256sum
+  find "$1" -type f ! -path '*/var/backups/xarlatan/*' -print0 | sort -z | xargs -0 sha256sum
 }
 
 assert_file "$ROOT/packaging/config.yaml"
@@ -29,9 +29,11 @@ assert_contains "$ROOT/packaging/systemd/xarlatan.service" 'Group=xarlatan'
 assert_contains "$ROOT/packaging/systemd/xarlatan.service" 'NoNewPrivileges=true'
 assert_contains "$ROOT/packaging/systemd/xarlatan.service" 'ProtectSystem=strict'
 assert_contains "$ROOT/packaging/systemd/xarlatan.service" 'ReadWritePaths=/var/lib/xarlatan'
+assert_not_contains "$ROOT/packaging/systemd/xarlatan.service" '/var/backups/xarlatan'
 assert_contains "$ROOT/packaging/systemd/xarlatan.service" '--no-tools'
 assert_contains "$ROOT/packaging/config.yaml" 'enabled: false'
 assert_contains "$ROOT/packaging/config.yaml" '/var/lib/xarlatan/models/'
+assert_contains "$ROOT/scripts/install.sh" 'BACKUPDIR="${BACKUPDIR:-/var/backups/xarlatan}"'
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -49,6 +51,7 @@ DESTDIR="$TMP/root" SKIP_USER=1 SKIP_SYSTEMD=1 bash "$ROOT/scripts/install.sh"
 [[ -x "$TMP/root/usr/local/bin/llama-server" ]] || fail 'llama-server not installed'
 [[ -f "$TMP/root/etc/xarlatan/config.yaml" ]] || fail 'config not installed'
 [[ -f "$TMP/root/etc/systemd/system/xarlatan.service" ]] || fail 'unit not installed'
+[[ -f "$TMP/root/var/backups/xarlatan/manifest" ]] || fail 'rollback manifest not installed outside service data'
 
 first_state="$(staged_hashes "$TMP/root")"
 DESTDIR="$TMP/root" SKIP_USER=1 SKIP_SYSTEMD=1 bash "$ROOT/scripts/install.sh"
@@ -64,6 +67,7 @@ DESTDIR="$TMP/root" SKIP_SYSTEMD=1 bash "$ROOT/scripts/uninstall.sh"
 
 DESTDIR="$TMP/root" SKIP_SYSTEMD=1 PURGE=1 bash "$ROOT/scripts/uninstall.sh"
 [[ ! -e "$TMP/root/etc/xarlatan/config.yaml" ]] || fail 'purge left config'
+[[ ! -e "$TMP/root/var/backups/xarlatan" ]] || fail 'purge left rollback backup'
 
 DESTDIR="$TMP/fresh" SKIP_USER=1 SKIP_SYSTEMD=1 bash "$ROOT/scripts/install.sh"
 DESTDIR="$TMP/fresh" SKIP_SYSTEMD=1 bash "$ROOT/scripts/rollback.sh"
