@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/signal"
 	"runtime"
 	"strings"
 	"sync"
@@ -13,18 +14,18 @@ import (
 )
 
 type fakeProcess struct {
-	startErr      error
-	waitErr       error
-	signalErr     error
-	killErr       error
-	exitOnSignal  bool
-	exitOnKill    bool
-	started       atomic.Int32
-	signals       atomic.Int32
-	kills         atomic.Int32
-	waitCalls     atomic.Int32
-	exitOnce      sync.Once
-	exit           chan struct{}
+	startErr     error
+	waitErr      error
+	signalErr    error
+	killErr      error
+	exitOnSignal bool
+	exitOnKill   bool
+	started      atomic.Int32
+	signals      atomic.Int32
+	kills        atomic.Int32
+	waitCalls    atomic.Int32
+	exitOnce     sync.Once
+	exit         chan struct{}
 }
 
 func newFakeProcess() *fakeProcess {
@@ -338,7 +339,7 @@ func TestLLMHelperProcess(t *testing.T) {
 	ch := make(chan os.Signal, 1)
 	// The default exec-backed process receives os.Interrupt during graceful stop.
 	// Exiting here lets the parent assert that Wait completed and no child remains.
-	signalNotify(ch)
+	signal.Notify(ch, os.Interrupt)
 	<-ch
 	os.Exit(0)
 }
