@@ -86,7 +86,7 @@ resolve_default_paths
 [[ "$(uname -s)" == Linux ]] && pass "Linux host" || fail "Linux is required"
 [[ "$(uname -m)" == x86_64 ]] && pass "x86_64 architecture" || warn "untested architecture: $(uname -m)"
 
-for command in arecord aplay curl sha256sum tar timeout; do
+for command in arecord aplay curl sha256sum tar timeout ldd; do
   check_command "$command"
 done
 
@@ -95,11 +95,18 @@ done
 [[ -x "$LLAMA_SERVER_BIN" ]] && pass "llama-server binary: $LLAMA_SERVER_BIN" || fail "llama-server not executable: $LLAMA_SERVER_BIN"
 
 if [[ -x "$XARLATAN_BIN" ]]; then
-  actual_version="$($XARLATAN_BIN -version 2>/dev/null || true)"
+  actual_version="$(env -u LD_LIBRARY_PATH "$XARLATAN_BIN" -version 2>/dev/null || true)"
   if [[ "$actual_version" == "assistant $EXPECTED_VERSION" ]]; then
-    pass "version: $actual_version"
+    pass "version without LD_LIBRARY_PATH: $actual_version"
   else
-    fail "version mismatch: got '${actual_version:-empty}', want 'assistant $EXPECTED_VERSION'"
+    fail "version/linker mismatch: got '${actual_version:-empty}', want 'assistant $EXPECTED_VERSION'"
+  fi
+
+  linkage="$(env -u LD_LIBRARY_PATH ldd "$XARLATAN_BIN" 2>&1 || true)"
+  if grep -q 'not found' <<<"$linkage"; then
+    fail "assistant has unresolved runtime libraries"
+  else
+    pass "assistant runtime libraries resolved without shell environment"
   fi
 fi
 
@@ -145,10 +152,17 @@ else
   fail "ALSA playback enumeration failed"
 fi
 
-if id -nG "$(id -un)" | tr ' ' '\n' | grep -qx audio; then
-  pass "current user belongs to audio group"
+PIPEWIRE_RUNTIME="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+if [[ -S "$PIPEWIRE_RUNTIME/pipewire-0" ]]; then
+  pass "PipeWire user session available: $PIPEWIRE_RUNTIME/pipewire-0"
 else
-  warn "current user is not in audio group; PipeWire may still provide foreground audio"
+  warn "PipeWire user session socket not found: $PIPEWIRE_RUNTIME/pipewire-0"
+fi
+
+if command -v systemctl >/dev/null 2>&1 && systemctl --user cat xarlatan.service >/dev/null 2>&1; then
+  pass "systemd user service installed"
+else
+  warn "systemd user service not installed or user manager unavailable"
 fi
 
 printf '\nPreflight summary: %d failure(s), %d warning(s)\n' "$FAILURES" "$WARNINGS"
