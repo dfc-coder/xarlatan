@@ -401,8 +401,10 @@ type FSList struct {
 	Sandbox *FilesystemSandbox
 }
 
-func (t FSList) Name() string        { return "fs_list" }
-func (t FSList) Description() string { return "List files and directories inside the configured sandbox." }
+func (t FSList) Name() string { return "fs_list" }
+func (t FSList) Description() string {
+	return "List files and directories inside the configured sandbox."
+}
 func (t FSList) Schema() ParameterSchema {
 	return NewSchema([]string{"path"}, map[string]Property{
 		"path":      {Type: "string", Description: "Directory path relative to the sandbox"},
@@ -494,8 +496,10 @@ type FSDelete struct {
 	Sandbox *FilesystemSandbox
 }
 
-func (t FSDelete) Name() string        { return "fs_delete" }
-func (t FSDelete) Description() string { return "Delete a non-root file or directory inside the configured sandbox." }
+func (t FSDelete) Name() string { return "fs_delete" }
+func (t FSDelete) Description() string {
+	return "Delete a non-root file or directory inside the configured sandbox."
+}
 func (t FSDelete) Schema() ParameterSchema {
 	return NewSchema([]string{"path"}, map[string]Property{
 		"path":      {Type: "string", Description: "Path relative to the sandbox"},
@@ -582,8 +586,10 @@ type FSMkdir struct {
 	Sandbox *FilesystemSandbox
 }
 
-func (t FSMkdir) Name() string        { return "fs_mkdir" }
-func (t FSMkdir) Description() string { return "Create a directory tree inside the configured sandbox." }
+func (t FSMkdir) Name() string { return "fs_mkdir" }
+func (t FSMkdir) Description() string {
+	return "Create a directory tree inside the configured sandbox."
+}
 func (t FSMkdir) Schema() ParameterSchema {
 	return NewSchema([]string{"path"}, map[string]Property{
 		"path": {Type: "string", Description: "Directory path relative to the sandbox"},
