@@ -28,15 +28,19 @@ type Playback struct {
 	sampleRate int
 	channels   int
 	runner     commandRunner
+	guard      playbackGuard
 }
 
-// NewPlayback creates a Playback instance.
+// NewPlayback creates a half-duplex Playback instance. After a response is
+// played, the microphone remains disarmed until speaker buffers drain and
+// ambient audio is stably silent.
 func NewPlayback(device string, sampleRate, channels int) *Playback {
 	return &Playback{
 		device:     device,
 		sampleRate: sampleRate,
 		channels:   channels,
 		runner:     execRunner{},
+		guard:      newMicrophoneRearmGuard(device, sampleRate, channels),
 	}
 }
 
@@ -45,7 +49,7 @@ func (p *Playback) Play(ctx context.Context, buffer Buffer) error {
 	if buffer.Empty() {
 		return nil
 	}
-	if p == nil || p.runner == nil {
+	if p == nil || p.runner == nil || p.guard == nil {
 		return fmt.Errorf("playback is not initialized")
 	}
 	if err := buffer.Validate(); err != nil {
@@ -66,6 +70,12 @@ func (p *Playback) Play(ctx context.Context, buffer Buffer) error {
 		}
 		slog.Debug("aplay output", "bytes", len(out))
 		return fmt.Errorf("aplay: %w", err)
+	}
+	if err := p.guard.Wait(ctx); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		return fmt.Errorf("post-playback guard: %w", err)
 	}
 	return nil
 }
