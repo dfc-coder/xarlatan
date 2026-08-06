@@ -54,16 +54,7 @@ func TestBuildRegistryAllowsMutationsOnlyWhenExplicit(t *testing.T) {
 }
 
 func TestApplicationUsesOrchestratorOnly(t *testing.T) {
-	_, currentFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller() failed")
-	}
-	mainPath := filepath.Join(filepath.Dir(currentFile), "main.go")
-	content, err := os.ReadFile(mainPath)
-	if err != nil {
-		t.Fatalf("read main.go: %v", err)
-	}
-	source := string(content)
+	source := readMainSource(t)
 	for _, forbidden := range []string{
 		"llmClient.Generate(",
 		"executor.RunAll(",
@@ -81,4 +72,46 @@ func TestApplicationUsesOrchestratorOnly(t *testing.T) {
 	if !strings.Contains(source, "orchestrator.NewAgentRuntime(") {
 		t.Fatal("main.go does not construct AgentRuntime")
 	}
+}
+
+func TestApplicationOwnsLLMServerLifecycle(t *testing.T) {
+	source := readMainSource(t)
+	for _, required := range []string{
+		"func run() error",
+		"llm.NewServerManager(",
+		"serverManager.Start(ctx)",
+		"serverManager.WaitReady(ctx)",
+		"serverManager.Stop(context.Background())",
+		"llm.NewClient(",
+	} {
+		if !strings.Contains(source, required) {
+			t.Fatalf("main.go missing lifecycle primitive %q", required)
+		}
+	}
+	for _, forbidden := range []string{
+		"llm.New(",
+		"llmClient.Close(",
+		"llmClient.startServer(",
+	} {
+		if strings.Contains(source, forbidden) {
+			t.Fatalf("main.go contains implicit lifecycle primitive %q", forbidden)
+		}
+	}
+	if got := strings.Count(source, "os.Exit("); got != 1 {
+		t.Fatalf("os.Exit calls = %d, want 1 only after run returns", got)
+	}
+}
+
+func readMainSource(t *testing.T) string {
+	t.Helper()
+	_, currentFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller() failed")
+	}
+	mainPath := filepath.Join(filepath.Dir(currentFile), "main.go")
+	content, err := os.ReadFile(mainPath)
+	if err != nil {
+		t.Fatalf("read main.go: %v", err)
+	}
+	return string(content)
 }

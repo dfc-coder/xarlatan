@@ -4,15 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
 
-	"github.com/dfc-coder/xarlatan/internal/config"
 	"github.com/dfc-coder/xarlatan/internal/tools"
 )
 
@@ -30,50 +27,34 @@ func (noopTool) Execute(_ context.Context, _ json.RawMessage) tools.Result {
 func TestGenerate_UsesSingleLLMCallPerTurn(t *testing.T) {
 	var requests int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/health":
-			w.WriteHeader(http.StatusOK)
-			return
-		case "/v1/chat/completions":
-		default:
+		if r.URL.Path != "/v1/chat/completions" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 
-		count := atomic.AddInt32(&requests, 1)
+		atomic.AddInt32(&requests, 1)
 		w.Header().Set("Content-Type", "text/event-stream")
-		if count == 1 {
-			fmt.Fprintln(w, `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"noop","arguments":"{}"}}]}}]}`)
-			fmt.Fprintln(w, "data: [DONE]")
-			return
-		}
-		fmt.Fprintln(w, `data: {"choices":[{"delta":{"content":"final"}}]}`)
+		fmt.Fprintln(w, `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"noop","arguments":"{}"}}]}}]}`)
 		fmt.Fprintln(w, "data: [DONE]")
 	}))
 	defer server.Close()
 
-	parsed, err := url.Parse(server.URL)
-	if err != nil {
-		t.Fatalf("parse server url: %v", err)
+	registry := tools.NewRegistry(tools.AllowAllToolPolicy())
+	if err := registry.Register(noopTool{}); err != nil {
+		t.Fatalf("Register() error = %v", err)
 	}
-	port := mustPort(t, parsed)
-
-	r := tools.NewRegistry(tools.AllowAllToolPolicy())
-	r.Register(noopTool{})
-
-	c := &Client{
-		cfg: config.LLMConfig{
-			Host:         parsed.Hostname(),
-			Port:         port,
-			Temperature:  0.7,
-			TopP:         0.9,
-			MaxTokens:    64,
-			SystemPrompt: "system",
-		},
-		http: server.Client(),
+	client, err := NewClient(ClientConfig{
+		BaseURL:     server.URL,
+		Temperature: 0.7,
+		TopP:        0.9,
+		MaxTokens:   64,
+		HTTPClient:  server.Client(),
+	})
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
 	}
 
 	history := []Message{{Role: "system", Content: "system"}}
-	reply, toolLog, nextHistory, err := c.Generate(context.Background(), history, "hello", r)
+	reply, toolLog, nextHistory, err := client.Generate(context.Background(), history, "hello", registry)
 	if err != nil {
 		t.Fatalf("Generate() error = %v", err)
 	}
@@ -95,17 +76,4 @@ func TestGenerate_UsesSingleLLMCallPerTurn(t *testing.T) {
 	if nextHistory[1].Role != "user" || nextHistory[2].Role != "assistant" {
 		t.Fatalf("nextHistory roles = %q %q, want user assistant", nextHistory[1].Role, nextHistory[2].Role)
 	}
-}
-
-func mustPort(t *testing.T, u *url.URL) int {
-	t.Helper()
-	_, port, err := net.SplitHostPort(u.Host)
-	if err != nil {
-		t.Fatalf("split host port: %v", err)
-	}
-	var p int
-	if _, err := fmt.Sscanf(port, "%d", &p); err != nil {
-		t.Fatalf("parse port: %v", err)
-	}
-	return p
 }

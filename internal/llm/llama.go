@@ -1,5 +1,5 @@
-// Package llm manages a llama-server subprocess and communicates via its
-// OpenAI-compatible REST API with full tool/function-calling support.
+// Package llm communicates with an OpenAI-compatible language-model endpoint
+// and manages an optional llama-server subprocess through a separate lifecycle.
 package llm
 
 import (
@@ -9,18 +9,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
-	"os"
-	"os/exec"
+	"net/url"
 	"strings"
 	"time"
 
-	"github.com/dfc-coder/xarlatan/internal/config"
 	"github.com/dfc-coder/xarlatan/internal/tools"
 )
-
-// ─── Typed message (replaces map[string]any) ─────────────────────────────────
 
 // Message is a single conversation turn. Fields are omitted when empty so the
 // JSON matches what llama-server expects for each role variant.
@@ -30,8 +25,6 @@ type Message struct {
 	ToolCalls  []tools.ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string           `json:"tool_call_id,omitempty"`
 }
-
-// ─── Wire types ───────────────────────────────────────────────────────────────
 
 type chatRequest struct {
 	Messages    []Message          `json:"messages"`
@@ -43,7 +36,6 @@ type chatRequest struct {
 	Stream      bool               `json:"stream"`
 }
 
-// streamChunk represents one SSE delta from /v1/chat/completions.
 type streamChunk struct {
 	Choices []struct {
 		Delta struct {
@@ -54,63 +46,135 @@ type streamChunk struct {
 				Type     string `json:"type"`
 				Function struct {
 					Name      string `json:"name"`
-					Arguments string `json:"arguments"` // arrives as string fragments
+					Arguments string `json:"arguments"`
 				} `json:"function"`
 			} `json:"tool_calls"`
 		} `json:"delta"`
 	} `json:"choices"`
 }
 
-// ─── Client ───────────────────────────────────────────────────────────────────
+// HTTPDoer is the minimal HTTP boundary used by the client and health probe.
+type HTTPDoer interface {
+	Do(*http.Request) (*http.Response, error)
+}
 
+// ClientConfig configures inference only. Process ownership belongs to
+// ServerManager and is deliberately absent from this contract.
+type ClientConfig struct {
+	BaseURL     string
+	Temperature float64
+	TopP        float64
+	MaxTokens   int
+	HTTPClient  HTTPDoer
+}
+
+type requestFactory func(context.Context, string, string, []byte) (*http.Request, error)
+type jsonMarshal func(any) ([]byte, error)
+
+// ClientOption customizes testable client boundaries.
+type ClientOption func(*Client)
+
+func withJSONMarshal(marshal jsonMarshal) ClientOption {
+	return func(c *Client) { c.marshal = marshal }
+}
+
+func withRequestFactory(factory requestFactory) ClientOption {
+	return func(c *Client) { c.newRequest = factory }
+}
+
+// Client sends inference requests. It owns no subprocess lifecycle.
 type Client struct {
-	cfg    config.LLMConfig
-	http   *http.Client
-	server *exec.Cmd
+	baseURL     *url.URL
+	temperature float64
+	topP        float64
+	maxTokens   int
+	http        HTTPDoer
+	marshal     jsonMarshal
+	newRequest  requestFactory
 }
 
-func New(cfg config.LLMConfig) (*Client, error) {
-	c := &Client{
-		cfg:  cfg,
-		http: &http.Client{Timeout: 180 * time.Second},
+// NewClient validates and constructs an inference client without spawning a
+// server. A managed or external server must be prepared independently.
+func NewClient(cfg ClientConfig, options ...ClientOption) (*Client, error) {
+	baseURL, err := parseBaseURL(cfg.BaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("llm client base URL: %w", err)
 	}
-	return c, c.startServer()
-}
+	if cfg.Temperature < 0 || cfg.Temperature > 2 {
+		return nil, fmt.Errorf("llm client temperature must be between 0 and 2")
+	}
+	if cfg.TopP <= 0 || cfg.TopP > 1 {
+		return nil, fmt.Errorf("llm client top_p must be greater than 0 and at most 1")
+	}
+	if cfg.MaxTokens <= 0 {
+		return nil, fmt.Errorf("llm client max_tokens must be greater than zero")
+	}
 
-func (c *Client) startServer() error {
-	args := []string{
-		"--model", c.cfg.Model,
-		"--host", c.cfg.Host,
-		"--port", fmt.Sprintf("%d", c.cfg.Port),
-		"--ctx-size", fmt.Sprintf("%d", c.cfg.ContextSize),
-		"--n-gpu-layers", fmt.Sprintf("%d", c.cfg.NGPULayers),
-		"--threads", fmt.Sprintf("%d", c.cfg.Threads),
-		"--log-disable",
+	httpClient := cfg.HTTPClient
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: 180 * time.Second}
 	}
-	slog.Info("Starting llama-server", "model", c.cfg.Model)
-	cmd := exec.Command(c.cfg.ServerBinary, args...)
-	cmd.Stdout = io.Discard
-	cmd.Stderr = os.Stderr
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("llama-server: %w", err)
+	client := &Client{
+		baseURL:     baseURL,
+		temperature: cfg.Temperature,
+		topP:        cfg.TopP,
+		maxTokens:   cfg.MaxTokens,
+		http:        httpClient,
+		marshal:     json.Marshal,
+		newRequest:  defaultRequestFactory,
 	}
-	c.server = cmd
-
-	health := c.cfg.BaseURL() + "/health"
-	for deadline := time.Now().Add(60 * time.Second); time.Now().Before(deadline); {
-		if resp, err := c.http.Get(health); err == nil && resp.StatusCode == 200 {
-			_ = resp.Body.Close()
-			slog.Info("llama-server ready", "url", c.cfg.BaseURL())
-			return nil
+	for _, option := range options {
+		if option != nil {
+			option(client)
 		}
-		time.Sleep(500 * time.Millisecond)
 	}
-	return fmt.Errorf("llama-server timeout")
+	if client.marshal == nil {
+		return nil, fmt.Errorf("llm client marshal function is nil")
+	}
+	if client.newRequest == nil {
+		return nil, fmt.Errorf("llm client request factory is nil")
+	}
+	return client, nil
 }
 
-// Generate runs a single LLM turn and returns the raw response, tool calls,
-// and the next conversation history.
+func parseBaseURL(raw string) (*url.URL, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, fmt.Errorf("URL is required")
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return nil, fmt.Errorf("parse URL: %w", err)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return nil, fmt.Errorf("scheme must be http or https")
+	}
+	if parsed.Host == "" {
+		return nil, fmt.Errorf("host is required")
+	}
+	if parsed.User != nil {
+		return nil, fmt.Errorf("userinfo is not allowed")
+	}
+	if parsed.RawQuery != "" || parsed.Fragment != "" {
+		return nil, fmt.Errorf("query and fragment are not allowed")
+	}
+	if parsed.Path != "" && parsed.Path != "/" {
+		return nil, fmt.Errorf("base URL path must be empty")
+	}
+	parsed.Path = ""
+	return parsed, nil
+}
+
+func defaultRequestFactory(ctx context.Context, method, target string, body []byte) (*http.Request, error) {
+	return http.NewRequestWithContext(ctx, method, target, bytes.NewReader(body))
+}
+
+// Generate runs a single model call and returns the response, tool-call log,
+// and next immutable conversation history.
 func (c *Client) Generate(ctx context.Context, history []Message, userText string, registry *tools.Registry) (string, string, []Message, error) {
+	if c == nil {
+		return "", "", nil, fmt.Errorf("llm client is nil")
+	}
 	nextHistory := append([]Message(nil), history...)
 	if strings.TrimSpace(userText) != "" {
 		nextHistory = append(nextHistory, Message{Role: "user", Content: userText})
@@ -131,40 +195,55 @@ func (c *Client) Generate(ctx context.Context, history []Message, userText strin
 }
 
 func (c *Client) callLLM(ctx context.Context, history []Message, registry *tools.Registry) (content string, calls []tools.ToolCall, err error) {
-	req := chatRequest{
+	reqPayload := chatRequest{
 		Messages:    history,
-		Temperature: c.cfg.Temperature,
-		TopP:        c.cfg.TopP,
-		MaxTokens:   c.cfg.MaxTokens,
+		Temperature: c.temperature,
+		TopP:        c.topP,
+		MaxTokens:   c.maxTokens,
 		Stream:      true,
 	}
 	if registry != nil {
-		if defs := registry.Definitions(); len(defs) > 0 {
-			req.Tools = defs
-			req.ToolChoice = "auto"
+		if definitions := registry.Definitions(); len(definitions) > 0 {
+			reqPayload.Tools = definitions
+			reqPayload.ToolChoice = "auto"
 		}
 	}
 
-	body, _ := json.Marshal(req)
-	httpReq, _ := http.NewRequestWithContext(ctx, http.MethodPost,
-		c.cfg.BaseURL()+"/v1/chat/completions", bytes.NewReader(body))
+	body, err := c.marshal(reqPayload)
+	if err != nil {
+		return "", nil, fmt.Errorf("marshal llama-server request: %w", err)
+	}
+	endpoint := *c.baseURL
+	endpoint.Path = "/v1/chat/completions"
+	httpReq, err := c.newRequest(ctx, http.MethodPost, endpoint.String(), body)
+	if err != nil {
+		return "", nil, fmt.Errorf("create llama-server request: %w", err)
+	}
+	if httpReq == nil {
+		return "", nil, fmt.Errorf("create llama-server request: nil request")
+	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.http.Do(httpReq)
 	if err != nil {
-		return "", nil, fmt.Errorf("llama-server: %w", err)
+		return "", nil, fmt.Errorf("llama-server request: %w", err)
+	}
+	if resp == nil || resp.Body == nil {
+		return "", nil, fmt.Errorf("llama-server response has no body")
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		b, _ := io.ReadAll(resp.Body)
-		return "", nil, fmt.Errorf("llama-server %d: %s", resp.StatusCode, b)
+	if resp.StatusCode != http.StatusOK {
+		payload, readErr := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+		if readErr != nil {
+			return "", nil, fmt.Errorf("llama-server status %d: read body: %w", resp.StatusCode, readErr)
+		}
+		return "", nil, fmt.Errorf("llama-server status %d: %s", resp.StatusCode, strings.TrimSpace(string(payload)))
 	}
 	return parseStream(resp.Body)
 }
 
 // parseStream reads SSE and reassembles streamed tool-call argument fragments.
 func parseStream(r io.Reader) (content string, calls []tools.ToolCall, err error) {
-	// argBuf accumulates tool-call argument fragments keyed by delta index.
 	type partial struct {
 		id, typ, name string
 		args          strings.Builder
@@ -187,50 +266,41 @@ func parseStream(r io.Reader) (content string, calls []tools.ToolCall, err error
 		}
 		delta := chunk.Choices[0].Delta
 		content += delta.Content
-
-		for _, tc := range delta.ToolCalls {
-			for len(partials) <= tc.Index {
+		for _, toolCall := range delta.ToolCalls {
+			for len(partials) <= toolCall.Index {
 				partials = append(partials, partial{})
 			}
-			p := &partials[tc.Index]
-			if tc.ID != "" {
-				p.id = tc.ID
+			current := &partials[toolCall.Index]
+			if toolCall.ID != "" {
+				current.id = toolCall.ID
 			}
-			if tc.Type != "" {
-				p.typ = tc.Type
+			if toolCall.Type != "" {
+				current.typ = toolCall.Type
 			}
-			if tc.Function.Name != "" {
-				p.name = tc.Function.Name
+			if toolCall.Function.Name != "" {
+				current.name = toolCall.Function.Name
 			}
-			p.args.WriteString(tc.Function.Arguments)
+			current.args.WriteString(toolCall.Function.Arguments)
 		}
 	}
-	if e := scanner.Err(); e != nil {
-		return "", nil, fmt.Errorf("stream: %w", e)
+	if err := scanner.Err(); err != nil {
+		return "", nil, fmt.Errorf("stream: %w", err)
 	}
 
 	calls = make([]tools.ToolCall, 0, len(partials))
-	for _, p := range partials {
-		args := p.args.String()
-		if args == "" {
-			args = "{}"
+	for _, current := range partials {
+		arguments := current.args.String()
+		if arguments == "" {
+			arguments = "{}"
 		}
 		calls = append(calls, tools.ToolCall{
-			ID:   p.id,
-			Type: p.typ,
+			ID:   current.id,
+			Type: current.typ,
 			Function: tools.CallFunction{
-				Name:      p.name,
-				Arguments: json.RawMessage(args),
+				Name:      current.name,
+				Arguments: json.RawMessage(arguments),
 			},
 		})
 	}
 	return content, calls, nil
-}
-
-func (c *Client) Close() error {
-	if c.server != nil && c.server.Process != nil {
-		_ = c.server.Process.Kill()
-		return c.server.Wait()
-	}
-	return nil
 }

@@ -58,17 +58,19 @@ WI-04 está implementado y su evidencia consolidada se encuentra en `docs/refact
 
 ## LLM
 
-| ID | Requisito | Work item | Evidencia mínima |
+WI-05 está implementado y su evidencia consolidada se encuentra en `docs/refactor/WI-05_EVIDENCE.md`.
+
+| ID | Requisito | Work item | Evidencia automatizada exacta |
 |---|---|---|---|
-| LLM-001 | Cliente y server manager tienen lifecycle separado | WI-05 | contract tests |
-| LLM-002 | Modo external no inicia subprocesso | WI-05 | external mode test |
-| LLM-003 | Salida prematura se detecta | WI-05 | early exit test |
-| LLM-004 | Startup respeta timeout y contexto | WI-05 | timeout/cancel tests |
-| LLM-005 | Stop es idempotente | WI-05 | idempotency test |
-| LLM-006 | Health probe cierra cada body | WI-05 | close tracking test |
-| LLM-007 | Requests inválidos devuelven error y nunca panic | WI-05 | invalid URL test |
-| LLM-008 | Proceso recibe cierre escalonado | WI-05 | fake process assertions |
-| LLM-009 | No quedan subprocessos huérfanos | WI-05 | integration cleanup evidence |
+| LLM-001 | Cliente y server manager tienen lifecycle separado | WI-05 | `TestClientHasNoProcessLifecycle`, `TestApplicationOwnsLLMServerLifecycle` |
+| LLM-002 | Modo external no inicia subprocesso | WI-05 | `TestServerManagerExternalModeDoesNotSpawn`, `TestValidateLLMExternalModeDoesNotRequireLocalArtifacts` |
+| LLM-003 | Salida prematura se detecta | WI-05 | `TestServerManagerDetectsEarlyExit` |
+| LLM-004 | Startup respeta timeout y contexto | WI-05 | `TestServerManagerTimesOutWhenHealthNeverReady`, `TestServerManagerStopsOnContextCancellation` |
+| LLM-005 | Stop es idempotente | WI-05 | `TestServerManagerStopIsIdempotent` |
+| LLM-006 | Health probe cierra cada body | WI-05 | `TestHealthProbeClosesResponseBody` |
+| LLM-007 | Requests inválidos devuelven error y nunca panic | WI-05 | `TestClientRejectsInvalidBaseURL`, `TestClientReturnsMarshalOrRequestErrors`, `TestHealthProbeReturnsRequestAndTransportErrors` |
+| LLM-008 | Proceso recibe cierre escalonado | WI-05 | `TestServerManagerSignalsThenKillsAfterTimeout` |
+| LLM-009 | No quedan subprocessos huérfanos | WI-05 | `TestServerManagerLeavesNoOrphanAfterStartupCancellation` |
 
 ## Memoria
 

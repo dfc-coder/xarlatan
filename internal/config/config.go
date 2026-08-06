@@ -14,7 +14,12 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const defaultFilesystemLimitBytes int64 = 1 << 20
+const (
+	defaultFilesystemLimitBytes int64 = 1 << 20
+	defaultLLMStartupTimeoutMS        = 60_000
+	defaultLLMShutdownTimeoutMS       = 5_000
+	defaultLLMHealthIntervalMS        = 250
+)
 
 // Config is the validated runtime configuration.
 type Config struct {
@@ -75,21 +80,37 @@ type STTConfig struct {
 }
 
 type LLMConfig struct {
-	ServerBinary string  `yaml:"server_binary"`
-	Model        string  `yaml:"model"`
-	Host         string  `yaml:"host"`
-	Port         int     `yaml:"port"`
-	ContextSize  int     `yaml:"context_size"`
-	NGPULayers   int     `yaml:"n_gpu_layers"`
-	Threads      int     `yaml:"threads"`
-	Temperature  float64 `yaml:"temperature"`
-	TopP         float64 `yaml:"top_p"`
-	MaxTokens    int     `yaml:"max_tokens"`
-	SystemPrompt string  `yaml:"system_prompt"`
+	Mode              string  `yaml:"mode"`
+	ServerBinary      string  `yaml:"server_binary"`
+	Model             string  `yaml:"model"`
+	Host              string  `yaml:"host"`
+	Port              int     `yaml:"port"`
+	ContextSize       int     `yaml:"context_size"`
+	NGPULayers        int     `yaml:"n_gpu_layers"`
+	Threads           int     `yaml:"threads"`
+	Temperature       float64 `yaml:"temperature"`
+	TopP              float64 `yaml:"top_p"`
+	MaxTokens         int     `yaml:"max_tokens"`
+	SystemPrompt      string  `yaml:"system_prompt"`
+	StartupTimeoutMS  int     `yaml:"startup_timeout_ms"`
+	ShutdownTimeoutMS int     `yaml:"shutdown_timeout_ms"`
+	HealthIntervalMS  int     `yaml:"health_interval_ms"`
 }
 
 func (l LLMConfig) BaseURL() string {
 	return fmt.Sprintf("http://%s:%d", l.Host, l.Port)
+}
+
+func (l LLMConfig) StartupTimeout() time.Duration {
+	return time.Duration(l.StartupTimeoutMS) * time.Millisecond
+}
+
+func (l LLMConfig) ShutdownTimeout() time.Duration {
+	return time.Duration(l.ShutdownTimeoutMS) * time.Millisecond
+}
+
+func (l LLMConfig) HealthInterval() time.Duration {
+	return time.Duration(l.HealthIntervalMS) * time.Millisecond
 }
 
 type TTSConfig struct {
@@ -176,6 +197,9 @@ func (c *Config) applyDefaults(document *yaml.Node) {
 	if c.Audio.Device == "" {
 		c.Audio.Device = "default"
 	}
+	if c.LLM.Mode == "" {
+		c.LLM.Mode = "managed"
+	}
 	if c.LLM.Host == "" {
 		c.LLM.Host = "127.0.0.1"
 	}
@@ -196,6 +220,15 @@ func (c *Config) applyDefaults(document *yaml.Node) {
 	}
 	if !hasYAMLPath(document, "llm", "max_tokens") {
 		c.LLM.MaxTokens = 512
+	}
+	if !hasYAMLPath(document, "llm", "startup_timeout_ms") {
+		c.LLM.StartupTimeoutMS = defaultLLMStartupTimeoutMS
+	}
+	if !hasYAMLPath(document, "llm", "shutdown_timeout_ms") {
+		c.LLM.ShutdownTimeoutMS = defaultLLMShutdownTimeoutMS
+	}
+	if !hasYAMLPath(document, "llm", "health_interval_ms") {
+		c.LLM.HealthIntervalMS = defaultLLMHealthIntervalMS
 	}
 	if !hasYAMLPath(document, "tts", "length_scale") {
 		c.TTS.LengthScale = 1
@@ -265,29 +298,8 @@ func (c *Config) Validate() error {
 	if strings.TrimSpace(c.Audio.Device) == "" {
 		return fmt.Errorf("audio.device is required")
 	}
-	if strings.TrimSpace(c.LLM.Host) == "" {
-		return fmt.Errorf("llm.host is required")
-	}
-	if c.LLM.Port < 1 || c.LLM.Port > 65535 {
-		return fmt.Errorf("llm.port must be between 1 and 65535")
-	}
-	if c.LLM.ContextSize <= 0 {
-		return fmt.Errorf("llm.context_size must be greater than zero")
-	}
-	if c.LLM.Threads <= 0 {
-		return fmt.Errorf("llm.threads must be greater than zero")
-	}
-	if c.LLM.NGPULayers < 0 {
-		return fmt.Errorf("llm.n_gpu_layers must not be negative")
-	}
-	if c.LLM.Temperature < 0 || c.LLM.Temperature > 2 {
-		return fmt.Errorf("llm.temperature must be between 0 and 2")
-	}
-	if c.LLM.TopP <= 0 || c.LLM.TopP > 1 {
-		return fmt.Errorf("llm.top_p must be greater than 0 and at most 1")
-	}
-	if c.LLM.MaxTokens <= 0 {
-		return fmt.Errorf("llm.max_tokens must be greater than zero")
+	if err := validateLLM(c.LLM); err != nil {
+		return err
 	}
 	if c.TTS.LengthScale <= 0 {
 		return fmt.Errorf("tts.length_scale must be greater than zero")
@@ -315,7 +327,6 @@ func (c *Config) Validate() error {
 		{"stt.encoder", c.STT.Encoder},
 		{"stt.decoder", c.STT.Decoder},
 		{"stt.tokens", c.STT.Tokens},
-		{"llm.model", c.LLM.Model},
 		{"tts.model", c.TTS.Model},
 		{"tts.tokens", c.TTS.Tokens},
 	} {
@@ -323,13 +334,56 @@ func (c *Config) Validate() error {
 			return err
 		}
 	}
-	if err := validateExecutable("llm.server_binary", c.LLM.ServerBinary); err != nil {
-		return err
-	}
 	if err := validateDirectory("tts.data_dir", c.TTS.DataDir); err != nil {
 		return err
 	}
 	return nil
+}
+
+func validateLLM(cfg LLMConfig) error {
+	if cfg.Mode != "managed" && cfg.Mode != "external" {
+		return fmt.Errorf("llm.mode must be managed or external")
+	}
+	if strings.TrimSpace(cfg.Host) == "" {
+		return fmt.Errorf("llm.host is required")
+	}
+	if cfg.Port < 1 || cfg.Port > 65535 {
+		return fmt.Errorf("llm.port must be between 1 and 65535")
+	}
+	if cfg.ContextSize <= 0 {
+		return fmt.Errorf("llm.context_size must be greater than zero")
+	}
+	if cfg.Threads <= 0 {
+		return fmt.Errorf("llm.threads must be greater than zero")
+	}
+	if cfg.NGPULayers < 0 {
+		return fmt.Errorf("llm.n_gpu_layers must not be negative")
+	}
+	if cfg.Temperature < 0 || cfg.Temperature > 2 {
+		return fmt.Errorf("llm.temperature must be between 0 and 2")
+	}
+	if cfg.TopP <= 0 || cfg.TopP > 1 {
+		return fmt.Errorf("llm.top_p must be greater than 0 and at most 1")
+	}
+	if cfg.MaxTokens <= 0 {
+		return fmt.Errorf("llm.max_tokens must be greater than zero")
+	}
+	if cfg.StartupTimeoutMS <= 0 {
+		return fmt.Errorf("llm.startup_timeout_ms must be greater than zero")
+	}
+	if cfg.ShutdownTimeoutMS <= 0 {
+		return fmt.Errorf("llm.shutdown_timeout_ms must be greater than zero")
+	}
+	if cfg.HealthIntervalMS <= 0 {
+		return fmt.Errorf("llm.health_interval_ms must be greater than zero")
+	}
+	if cfg.Mode == "external" {
+		return nil
+	}
+	if err := validateRegularFile("llm.model", cfg.Model); err != nil {
+		return err
+	}
+	return validateExecutable("llm.server_binary", cfg.ServerBinary)
 }
 
 func validateFilesystem(cfg FilesystemConfig) error {
