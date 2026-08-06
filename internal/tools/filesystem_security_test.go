@@ -3,10 +3,19 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func TestSafePathRejectsTraversal(t *testing.T) {
+	root := t.TempDir()
+	if resolved, err := safePath(root, filepath.Join("..", "outside.txt")); err == nil {
+		t.Fatalf("safePath() = %q, nil; want traversal error", resolved)
+	}
+}
 
 func TestSafePathRejectsSymlinkEscape(t *testing.T) {
 	root := t.TempDir()
@@ -37,46 +46,126 @@ func TestSafePathRejectsParentSymlinkForNewFile(t *testing.T) {
 	}
 }
 
-func TestDeleteRejectsSandboxRoot(t *testing.T) {
+func TestAllFilesystemToolsRejectSymlinkEscape(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("secret"), 0o600); err != nil {
+		t.Fatalf("write outside target: %v", err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "escape")); err != nil {
+		t.Fatalf("create symlink: %v", err)
+	}
+
+	tests := []struct {
+		name string
+		tool Tool
+		args string
+	}{
+		{"read", FSRead{RootDir: root}, `{"path":"escape/secret.txt"}`},
+		{"stat", FSStat{RootDir: root}, `{"path":"escape/secret.txt"}`},
+		{"list", FSList{RootDir: root}, `{"path":"escape"}`},
+		{"write", FSWrite{RootDir: root}, `{"path":"escape/new.txt","content":"unsafe"}`},
+		{"mkdir", FSMkdir{RootDir: root}, `{"path":"escape/new-dir"}`},
+		{"delete", FSDelete{RootDir: root}, `{"path":"escape/secret.txt"}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.tool.Execute(context.Background(), json.RawMessage(tt.args))
+			if !result.IsError {
+				t.Fatalf("Execute() = %#v, want sandbox escape error", result)
+			}
+		})
+	}
+}
+
+func TestMutationsRejectSandboxRoot(t *testing.T) {
 	root := t.TempDir()
 	marker := filepath.Join(root, "keep.txt")
 	if err := os.WriteFile(marker, []byte("keep"), 0o600); err != nil {
 		t.Fatalf("write marker: %v", err)
 	}
 
-	result := (FSDelete{RootDir: root}).Execute(context.Background(), deleteTestArgs(t, "."))
-	if !result.IsError {
-		t.Fatalf("FSDelete.Execute() = %#v, want root protection error", result)
+	tests := []struct {
+		name string
+		tool Tool
+		args string
+	}{
+		{"delete-dot", FSDelete{RootDir: root}, `{"path":".","recursive":true}`},
+		{"delete-empty", FSDelete{RootDir: root}, `{"path":"","recursive":true}`},
+		{"write-dot", FSWrite{RootDir: root}, `{"path":".","content":"unsafe"}`},
+		{"write-empty", FSWrite{RootDir: root}, `{"path":"","content":"unsafe"}`},
+		{"mkdir-dot", FSMkdir{RootDir: root}, `{"path":"."}`},
+		{"mkdir-empty", FSMkdir{RootDir: root}, `{"path":""}`},
 	}
-	if _, err := os.Stat(marker); err != nil {
-		t.Fatalf("sandbox root was modified: %v", err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.tool.Execute(context.Background(), json.RawMessage(tt.args))
+			if !result.IsError || !strings.Contains(result.Content, "sandbox root") {
+				t.Fatalf("Execute() = %#v, want sandbox root protection error", result)
+			}
+			if _, err := os.Stat(marker); err != nil {
+				t.Fatalf("sandbox root was modified: %v", err)
+			}
+		})
 	}
 }
 
-func TestDeleteRejectsEmptyPath(t *testing.T) {
+func TestReadRejectsOversizedFile(t *testing.T) {
 	root := t.TempDir()
-	marker := filepath.Join(root, "keep.txt")
-	if err := os.WriteFile(marker, []byte("keep"), 0o600); err != nil {
-		t.Fatalf("write marker: %v", err)
+	if err := os.WriteFile(filepath.Join(root, "large.txt"), []byte("12345"), 0o600); err != nil {
+		t.Fatalf("write file: %v", err)
 	}
-
-	result := (FSDelete{RootDir: root}).Execute(context.Background(), deleteTestArgs(t, ""))
-	if !result.IsError {
-		t.Fatalf("FSDelete.Execute() = %#v, want empty path error", result)
-	}
-	if _, err := os.Stat(marker); err != nil {
-		t.Fatalf("sandbox root was modified: %v", err)
+	result := (FSRead{RootDir: root, MaxBytes: 4}).Execute(context.Background(), json.RawMessage(`{"path":"large.txt"}`))
+	if !result.IsError || !strings.Contains(result.Content, "read limit") {
+		t.Fatalf("FSRead.Execute() = %#v, want read limit error", result)
 	}
 }
 
-func deleteTestArgs(t *testing.T, path string) json.RawMessage {
-	t.Helper()
-	payload, err := json.Marshal(map[string]any{
-		"path":      path,
-		"recursive": true,
+func TestWriteRejectsOversizedPayload(t *testing.T) {
+	root := t.TempDir()
+	result := (FSWrite{RootDir: root, MaxBytes: 4}).Execute(context.Background(), json.RawMessage(`{"path":"large.txt","content":"12345"}`))
+	if !result.IsError || !strings.Contains(result.Content, "write limit") {
+		t.Fatalf("FSWrite.Execute() = %#v, want write limit error", result)
+	}
+	if _, err := os.Stat(filepath.Join(root, "large.txt")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("oversized write created destination: %v", err)
+	}
+}
+
+func TestWriteIsAtomic(t *testing.T) {
+	root := t.TempDir()
+	destination := filepath.Join(root, "state.txt")
+	if err := os.WriteFile(destination, []byte("old"), 0o600); err != nil {
+		t.Fatalf("write destination: %v", err)
+	}
+
+	err := atomicWriteFile(destination, []byte("new"), 0o600, func(_, _ string) error {
+		return errors.New("rename failed")
 	})
-	if err != nil {
-		t.Fatalf("marshal delete args: %v", err)
+	if err == nil {
+		t.Fatal("atomicWriteFile() error = nil, want rename failure")
 	}
-	return payload
+	content, readErr := os.ReadFile(destination)
+	if readErr != nil {
+		t.Fatalf("read destination: %v", readErr)
+	}
+	if string(content) != "old" {
+		t.Fatalf("destination = %q, want original content", content)
+	}
+	matches, globErr := filepath.Glob(filepath.Join(root, ".xarlatan-write-*"))
+	if globErr != nil {
+		t.Fatalf("glob temp files: %v", globErr)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("temporary files remain after failure: %v", matches)
+	}
+}
+
+func TestReadOnlyPolicyRejectsWriteDeleteAndMkdir(t *testing.T) {
+	registry := NewRegistry(NewToolPolicy("fs_read", "fs_list", "fs_stat"))
+	for _, tool := range []Tool{FSWrite{}, FSDelete{}, FSMkdir{}} {
+		if err := registry.Register(tool); !IsToolDenied(err) {
+			t.Fatalf("Register(%s) error = %v, want ToolDeniedError", tool.Name(), err)
+		}
+	}
 }
