@@ -42,17 +42,19 @@ La matriz vincula requisitos, work items, tests y evidencia de release. Los nomb
 
 ## Agente y orquestación
 
-| ID | Requisito | Work item | Evidencia mínima |
+WI-04 está implementado y su evidencia consolidada se encuentra en `docs/refactor/WI-04_EVIDENCE.md`.
+
+| ID | Requisito | Work item | Evidencia automatizada exacta |
 |---|---|---|---|
-| AGT-001 | Existe un único runtime de orquestación | WI-04 | architecture test/review |
-| AGT-002 | Respuestas directas no ejecutan tools | WI-04 | direct reply test |
-| AGT-003 | Se soportan múltiples tool rounds | WI-04 | multi-round test |
-| AGT-004 | Tool rounds tienen límite configurable | WI-04 | iteration limit test |
-| AGT-005 | Mensajes assistant/tool conservan orden e IDs | WI-04 | ordering test |
-| AGT-006 | Tool desconocida produce error tipado | WI-04 | unknown tool test |
-| AGT-007 | Error recuperable de tool puede volver al LLM | WI-04 | recoverable error test |
-| AGT-008 | Cancelación interrumpe el round activo | WI-04 | cancellation test |
-| AGT-009 | Cada round genera trace observable | WI-04 | trace assertions |
+| AGT-001 | Existe un único runtime de orquestación | WI-04 | `TestApplicationUsesOrchestratorOnly` |
+| AGT-002 | Respuestas directas no ejecutan tools | WI-04 | `TestAgentReturnsDirectReply` |
+| AGT-003 | Se soportan múltiples tool rounds | WI-04 | `TestAgentExecutesOneToolRound`, `TestAgentExecutesMultipleToolRounds` |
+| AGT-004 | Tool rounds tienen límite configurable | WI-04 | `TestAgentStopsAtConfiguredRoundLimit`, `TestNewAgentRuntimeRejectsInvalidConfig` |
+| AGT-005 | Mensajes assistant/tool conservan orden e IDs | WI-04 | `TestAgentPreservesToolCallOrdering` |
+| AGT-006 | Tool desconocida produce error tipado | WI-04 | `TestAgentReturnsUnknownToolError` |
+| AGT-007 | Error recuperable de tool puede volver al LLM | WI-04 | `TestAgentContinuesAfterRecoverableToolError`, `TestAgentReturnsDeniedToolErrorToModel` |
+| AGT-008 | Cancelación interrumpe el round activo | WI-04 | `TestAgentCancelsDuringToolExecution`, `TestAgentHonorsDeadlineDuringModelGeneration` |
+| AGT-009 | Cada round genera trace observable | WI-04 | `TestAgentEmitsTraceForEveryRound`, `TestMetricsObserverCountsRoundsToolsFailuresAndStops` |
 
 ## LLM
 

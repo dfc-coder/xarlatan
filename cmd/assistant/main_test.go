@@ -1,7 +1,11 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/dfc-coder/xarlatan/internal/config"
@@ -46,5 +50,35 @@ func TestBuildRegistryAllowsMutationsOnlyWhenExplicit(t *testing.T) {
 	want := []string{"fs_read", "fs_write", "fs_list", "fs_delete", "fs_stat", "fs_mkdir", "web_search", "web_fetch"}
 	if got := registry.Names(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("Names() = %v, want %v", got, want)
+	}
+}
+
+func TestApplicationUsesOrchestratorOnly(t *testing.T) {
+	_, currentFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller() failed")
+	}
+	mainPath := filepath.Join(filepath.Dir(currentFile), "main.go")
+	content, err := os.ReadFile(mainPath)
+	if err != nil {
+		t.Fatalf("read main.go: %v", err)
+	}
+	source := string(content)
+	for _, forbidden := range []string{
+		"llmClient.Generate(",
+		"executor.RunAll(",
+		"RunAllDetailed(",
+		"hasToolCalls(",
+		"toLLMMessages(",
+	} {
+		if strings.Contains(source, forbidden) {
+			t.Fatalf("main.go contains second agent-loop primitive %q", forbidden)
+		}
+	}
+	if got, want := strings.Count(source, "agent.Run("), 1; got != want {
+		t.Fatalf("agent.Run calls = %d, want %d", got, want)
+	}
+	if !strings.Contains(source, "orchestrator.NewAgentRuntime(") {
+		t.Fatal("main.go does not construct AgentRuntime")
 	}
 }
