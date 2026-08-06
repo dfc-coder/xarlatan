@@ -82,7 +82,22 @@ tools:
 }
 
 func TestValidateRejectsInvalidLLMPort(t *testing.T) {
-	cfg := Config{Audio: AudioConfig{SampleRate: 16000, Channels: 1, SilenceDurationMS: 1, MaxDurationS: 1, Device: "default"}, LLM: LLMConfig{Host: "127.0.0.1", Port: 70000}}
+	cfg := Config{
+		Audio: AudioConfig{SampleRate: 16000, Channels: 1, SilenceDurationMS: 1, MaxDurationS: 1, Device: "default"},
+		LLM: LLMConfig{
+			Mode:              "external",
+			Host:              "127.0.0.1",
+			Port:              70000,
+			ContextSize:       4096,
+			Threads:           4,
+			Temperature:       0.7,
+			TopP:              0.9,
+			MaxTokens:         512,
+			StartupTimeoutMS:  1000,
+			ShutdownTimeoutMS: 1000,
+			HealthIntervalMS:  100,
+		},
+	}
 	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "llm.port") {
 		t.Fatalf("Validate() error = %v, want llm.port error", err)
 	}
@@ -142,8 +157,20 @@ func TestValidateRejectsUnknownWebProvider(t *testing.T) {
 func structurallyValidConfig() Config {
 	return Config{
 		Audio: AudioConfig{SampleRate: 16000, Channels: 1, SilenceThreshold: 0.015, SilenceDurationMS: 1500, MaxDurationS: 30, Device: "default"},
-		LLM:   LLMConfig{Host: "127.0.0.1", Port: 8080, ContextSize: 4096, Threads: 4, Temperature: 0.7, TopP: 0.9, MaxTokens: 512},
-		TTS:   TTSConfig{LengthScale: 1, NoiseScale: 0.667, NoiseW: 0.8},
+		LLM: LLMConfig{
+			Mode:              "external",
+			Host:              "127.0.0.1",
+			Port:              8080,
+			ContextSize:       4096,
+			Threads:           4,
+			Temperature:       0.7,
+			TopP:              0.9,
+			MaxTokens:         512,
+			StartupTimeoutMS:  60_000,
+			ShutdownTimeoutMS: 5_000,
+			HealthIntervalMS:  250,
+		},
+		TTS: TTSConfig{LengthScale: 1, NoiseScale: 0.667, NoiseW: 0.8},
 		Tools: ToolsConfig{
 			Filesystem: FilesystemConfig{MaxReadBytes: 1 << 20, MaxWriteBytes: 1 << 20},
 			WebSearch:  WebSearchConfig{Provider: "duckduckgo"},
