@@ -27,7 +27,7 @@ Tracking: issue #7.
 - ejecutar tools mediante `tools.Executor` y conservar mensajes OpenAI compatibles;
 - agregar resultados tipados de ejecución de tools sin romper `RunAll`;
 - mover todo el loop agente fuera de `cmd/assistant/main.go`;
-- agregar `agent.max_tool_rounds` con default seguro y validación estricta;
+- exponer `-max-tool-rounds` con default seguro y validación antes de construir el runtime;
 - reemplazar observabilidad por trazas de rounds y tools;
 - eliminar nodos y contextos placeholder no conectados.
 
@@ -38,7 +38,8 @@ Tracking: issue #7.
 - extraer el loop completo audio/STT/TTS a `Application` (WI-07);
 - retries automáticos de red o tools;
 - ejecución paralela de tools;
-- planificación separada o model router.
+- planificación separada o model router;
+- ampliar el esquema YAML estricto solo para este límite operativo.
 
 ### Invariantes
 
@@ -71,7 +72,7 @@ type Result struct {
 func (r *AgentRuntime) Run(ctx context.Context, request Request) (Result, error)
 ```
 
-`MaxToolRounds` cuenta rondas que efectivamente ejecutan tools. Una respuesta directa puede finalizar en el primer round del modelo sin consumir ese budget.
+`MaxToolRounds` cuenta rondas que efectivamente ejecutan tools. Una respuesta directa puede finalizar en el primer round del modelo sin consumir ese budget. El binario usa `-max-tool-rounds=4` por defecto y rechaza valores menores o iguales a cero antes de construir STT, LLM, TTS o tools.
 
 ### Errores
 
@@ -122,7 +123,7 @@ Los errores de una tool se representan con `tools.ExecutionErrorCode`:
 
 ### Slice C — Composition root y limpieza
 
-- configurar `agent.max_tool_rounds`;
+- configurar `-max-tool-rounds` con default 4;
 - usar runtime desde `main.go`;
 - eliminar nodos/contextos placeholder y sus tests;
 - conservar compactación de memoria fuera del runtime hasta WI-06.
@@ -140,4 +141,4 @@ El runtime queda unificado, pero memoria y voice application continúan coordina
 
 ## Rollback
 
-Revertir el squash merge de WI-04 restaura el loop de una sola ronda en `main.go` y los nodos placeholder. No requiere migración de datos; `agent.max_tool_rounds` debe retirarse del YAML si se revierte a una versión estricta anterior.
+Revertir el squash merge de WI-04 restaura el loop de una sola ronda en `main.go` y los nodos placeholder. No requiere migración de datos ni cambios en `config.yaml`; el flag `-max-tool-rounds` deja de existir al volver a la versión anterior.
