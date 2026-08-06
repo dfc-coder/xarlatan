@@ -96,7 +96,7 @@ func TestResponseComposer_RunIgnoresIrrelevantFields(t *testing.T) {
 }
 
 func TestToolExecutor_RunIgnoresIrrelevantFields(t *testing.T) {
-	r := tools.NewRegistry()
+	r := tools.NewRegistry(tools.AllowAllToolPolicy())
 	r.Register(echoTool{})
 	node := ToolExecutor{Executor: tools.NewExecutor(r)}
 	call := tools.ToolCall{
