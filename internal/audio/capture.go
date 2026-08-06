@@ -181,10 +181,7 @@ func pcmChunkBytes(sampleRate, channels int) (int, error) {
 	if channels != 1 {
 		return 0, fmt.Errorf("voice capture requires mono audio")
 	}
-	samplesPerChannel := sampleRate * chunkDurationMS / 1000
-	if samplesPerChannel <= 0 {
-		return 0, fmt.Errorf("audio sample rate is too small for %d ms chunks", chunkDurationMS)
-	}
+	samplesPerChannel := (sampleRate*chunkDurationMS + 999) / 1000
 	return samplesPerChannel * channels * pcmBytesPerSample, nil
 }
 
