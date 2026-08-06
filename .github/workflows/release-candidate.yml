@@ -1,0 +1,67 @@
+name: release candidate
+
+on:
+  push:
+    tags:
+      - "v*-beta.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release candidate version"
+        required: true
+        default: "v0.4.0-beta.1"
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+      SOURCE_DATE_EPOCH: "0"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.21.x"
+          cache: true
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake git curl bzip2 alsa-utils libasound2-dev shellcheck
+
+      - name: Verify source gates
+        run: |
+          test -z "$(gofmt -l .)"
+          go vet ./...
+          go test -count=1 ./...
+          shellcheck scripts/*.sh scripts/tests/*.sh
+          bash scripts/tests/wi08_contract_test.sh
+          bash scripts/tests/wi09_contract_test.sh
+
+      - name: Build full candidate
+        run: make clean-all all VERSION="$VERSION"
+
+      - name: Verify embedded version
+        run: test "$(./bin/assistant -version)" = "assistant $VERSION"
+
+      - name: Package candidate
+        run: make release-candidate VERSION="$VERSION"
+
+      - name: Verify archive checksum
+        run: cd dist && sha256sum -c SHA256SUMS
+
+      - name: Upload candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: xarlatan-${{ env.VERSION }}-linux-amd64
+          path: |
+            dist/*.tar.gz
+            dist/SHA256SUMS
+          if-no-files-found: error
