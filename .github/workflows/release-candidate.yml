@@ -14,10 +14,14 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: release-candidate-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   package:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
       SOURCE_DATE_EPOCH: "0"
@@ -36,14 +40,29 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake git curl bzip2 alsa-utils libasound2-dev shellcheck
 
-      - name: Verify source gates
+      - name: Verify source and Go gates
         run: |
           test -z "$(gofmt -l .)"
           go vet ./...
-          go test -count=1 ./...
-          shellcheck scripts/*.sh scripts/tests/*.sh
+          go test -count=1 -coverprofile=coverage.out ./...
+          go test -count=20 \
+            ./internal/orchestrator ./internal/tools ./internal/llm \
+            ./internal/memory ./internal/audio ./internal/conversation ./internal/application
+          go test -race -count=1 \
+            ./internal/orchestrator ./internal/tools ./internal/llm \
+            ./internal/memory ./internal/audio ./internal/conversation ./internal/application
+
+      - name: Verify operational contracts
+        run: |
+          shellcheck \
+            scripts/install.sh scripts/uninstall.sh scripts/rollback.sh \
+            scripts/preflight.sh scripts/beta_acceptance.sh scripts/package_release.sh \
+            scripts/tests/wi08_contract_test.sh scripts/tests/wi09_contract_test.sh
           bash scripts/tests/wi08_contract_test.sh
           bash scripts/tests/wi09_contract_test.sh
+          sudo install -Dm755 /bin/true /usr/local/bin/xarlatan
+          sudo systemd-analyze verify packaging/systemd/xarlatan.service
+          sudo systemd-analyze security --offline=yes --threshold=50 packaging/systemd/xarlatan.service
 
       - name: Build full candidate
         run: make clean-all all VERSION="$VERSION"
@@ -64,4 +83,5 @@ jobs:
           path: |
             dist/*.tar.gz
             dist/SHA256SUMS
+            coverage.out
           if-no-files-found: error
