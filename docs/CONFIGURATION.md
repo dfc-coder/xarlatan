@@ -77,7 +77,33 @@ Providers:
 
 - `duckduckgo`: no requiere clave.
 - `brave`: requiere `api_key`.
-- `searxng`: requiere una `base_url` HTTP(S) válida.
+- `searxng`: requiere una `base_url` HTTP(S) válida y públicamente enrutable.
+
+### Política HTTP/SSRF
+
+`web_search` y `web_fetch` comparten un único `SafeHTTPClient`. La policy se aplica al URL inicial, a cada resolución DNS y a cada redirect efectivo.
+
+Se rechazan antes de conectar:
+
+- schemes distintos de `http` y `https`;
+- URLs relativas, sin host o con credenciales embebidas;
+- `localhost`, loopback IPv4/IPv6 y direcciones unspecified;
+- RFC1918, IPv6 ULA y CGNAT;
+- link-local, multicast y endpoints conocidos de metadata;
+- hostnames cuyo DNS devuelva una IP bloqueada, incluso si también devuelve IPs públicas.
+
+El dial se realiza contra una IP ya validada, evitando una segunda resolución insegura. Los redirects están limitados a cinco saltos y eliminan headers sensibles cuando cambia host o puerto.
+
+Límites de producción:
+
+- timeout total: 15 segundos;
+- body máximo duro: 512 KiB;
+- redirects máximos: 5;
+- content types permitidos: `text/*`, JSON, XML, XHTML, JavaScript textual y variantes `+json`/`+xml`.
+
+`web_fetch.max_bytes` puede solicitar un límite menor. Cuando la respuesta lo excede, devuelve el prefijo acotado con `[truncated]`. Los providers de búsqueda rechazan una respuesta estructurada truncada para no intentar parsear JSON incompleto.
+
+No existen excepciones implícitas para servicios privados. Un SearXNG local o de red interna requiere un adapter confiable separado con policy explícita; no debe conectarse mediante las tools web genéricas.
 
 ## Validación runtime
 
