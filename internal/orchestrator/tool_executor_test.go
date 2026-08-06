@@ -22,7 +22,7 @@ func (echoTool) Execute(_ context.Context, args json.RawMessage) tools.Result {
 }
 
 func TestToolExecutor_RunExecutesRealTool(t *testing.T) {
-	r := tools.NewRegistry()
+	r := tools.NewRegistry(tools.AllowAllToolPolicy())
 	r.Register(echoTool{})
 	observer := &spyObserver{}
 	node := ToolExecutor{Executor: tools.NewExecutor(r), Observer: observer}
