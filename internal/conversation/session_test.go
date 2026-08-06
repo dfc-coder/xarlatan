@@ -64,7 +64,7 @@ func TestSessionDoesNotCommitMemoryWhenAgentFails(t *testing.T) {
 
 func TestSessionDoesNotReturnUncommittedHistoryWhenUpdateFails(t *testing.T) {
 	manager := &fakeMemory{
-		prepared: memory.Snapshot{History: []llm.Message{{Role: "system", Content: "trusted"}}},
+		prepared:  memory.Snapshot{History: []llm.Message{{Role: "system", Content: "trusted"}}},
 		updateErr: errors.New("invalid history"),
 	}
 	agent := &fakeAgent{result: orchestrator.Result{
