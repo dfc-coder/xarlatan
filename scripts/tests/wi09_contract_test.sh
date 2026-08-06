@@ -15,6 +15,11 @@ for file in \
   "$ROOT/docs/BETA_RUNBOOK.md" \
   "$ROOT/docs/refactor/WI-09_SPEC.md" \
   "$ROOT/docs/refactor/WI-09_EVIDENCE.md" \
+  "$ROOT/docs/refactor/WI-09_ECHO_HOTFIX.md" \
+  "$ROOT/internal/audio/rearm.go" \
+  "$ROOT/internal/audio/rearm_test.go" \
+  "$ROOT/internal/stt/filter.go" \
+  "$ROOT/internal/stt/filter_test.go" \
   "$ROOT/CHANGELOG.md"; do
   assert_file "$file"
 done
@@ -37,9 +42,17 @@ assert_contains "$ROOT/docs/BETA_RUNBOOK.md" 'dakota-fedora'
 assert_contains "$ROOT/docs/BETA_RUNBOOK.md" 'bash ./scripts/beta_acceptance.sh ./config.yaml'
 assert_not_contains "$ROOT/docs/BETA_RUNBOOK.md" 'bash ./scripts/beta_acceptance.sh /etc/xarlatan/config.yaml'
 assert_contains "$ROOT/scripts/beta_acceptance.sh" 'VOICE_PIPELINE'
+assert_contains "$ROOT/scripts/beta_acceptance.sh" 'NO_SPONTANEOUS_TURNS'
+assert_contains "$ROOT/scripts/beta_acceptance.sh" 'Ask exactly one short question, then remain silent.'
+assert_contains "$ROOT/scripts/beta_acceptance.sh" 'no spontaneous post-playback turns'
 assert_contains "$ROOT/scripts/beta_acceptance.sh" 'REQUIRE_SERVICE="${REQUIRE_SERVICE:-1}"'
 assert_contains "$ROOT/scripts/beta_acceptance.sh" 'CONFIG_AUDIO_DEVICE'
 assert_contains "$ROOT/scripts/beta_acceptance.sh" 'The report contains no transcript'
+assert_contains "$ROOT/internal/audio/playback.go" 'guard.Wait(ctx)'
+assert_contains "$ROOT/internal/audio/rearm.go" 'defaultRearmCooldown  = 700 * time.Millisecond'
+assert_contains "$ROOT/internal/audio/rearm.go" 'defaultStableSilence  = 560 * time.Millisecond'
+assert_contains "$ROOT/internal/stt/stt.go" 'filterTranscript(stream.GetResult().Text)'
+assert_contains "$ROOT/internal/stt/filter_test.go" '[Música]'
 assert_contains "$ROOT/scripts/download_models.sh" 'Qwen/Qwen2.5-0.5B-Instruct-GGUF'
 assert_contains "$ROOT/scripts/download_models.sh" 'qwen2.5-0.5b-instruct-q4_k_m.gguf'
 assert_contains "$ROOT/scripts/download_models.sh" '74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db'
