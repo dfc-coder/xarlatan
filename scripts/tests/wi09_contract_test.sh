@@ -39,6 +39,8 @@ assert_contains "$ROOT/scripts/download_models.sh" 'Qwen/Qwen2.5-0.5B-Instruct-G
 assert_contains "$ROOT/scripts/download_models.sh" 'qwen2.5-0.5b-instruct-q4_k_m.gguf'
 assert_contains "$ROOT/scripts/download_models.sh" '74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db'
 assert_contains "$ROOT/scripts/download_models.sh" 'download_atomic'
+assert_contains "$ROOT/scripts/package_release.sh" 'download_models.sh'
+assert_contains "$ROOT/scripts/package_release.sh" 'BETA_RUNBOOK.md'
 assert_contains "$ROOT/config.yaml" 'qwen2.5-0.5b-instruct-q4_k_m.gguf'
 assert_contains "$ROOT/packaging/config.yaml" 'qwen2.5-0.5b-instruct-q4_k_m.gguf'
 assert_not_contains "$ROOT/config.yaml" 'gemma-3-270m-it-Q4_K_M.gguf'
