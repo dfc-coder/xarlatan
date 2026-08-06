@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/dfc-coder/xarlatan/internal/audio"
 	"github.com/dfc-coder/xarlatan/internal/conversation"
