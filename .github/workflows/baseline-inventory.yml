@@ -7,6 +7,7 @@ on:
       - "go.mod"
       - "go.sum"
       - "docs/baseline/**"
+      - "docs/refactor/**"
       - ".github/workflows/**"
   push:
     branches:
@@ -29,6 +30,8 @@ jobs:
           test -f internal/tools/web_security_test.go
           test -f internal/orchestrator/runtime_test.go
           test -f internal/llm/server_manager_test.go
+          test -f internal/memory/memory_test.go
+          test -f internal/memory/prepare_test.go
           test -f cmd/assistant/main_test.go
           ! grep -R --include='*.go' -n "github.com/local/assistant" cmd internal
           ! grep -n "github.com/local/assistant" go.mod go.sum
@@ -37,4 +40,7 @@ jobs:
           test -f docs/baseline/VALIDATION.md
           test -f docs/baseline/KNOWN_ISSUES.md
           test -f docs/refactor/WI-00_EVIDENCE.md
+          test -f docs/refactor/WI-05_EVIDENCE.md
+          test -f docs/refactor/WI-06_SPEC.md
+          test -f docs/refactor/WI-06_EVIDENCE.md
           test -z "$(gofmt -l cmd internal)"
