@@ -1,0 +1,56 @@
+audio:
+  sample_rate: 16000
+  channels: 1
+  silence_threshold: 0.015
+  silence_duration_ms: 1500
+  max_duration_s: 30
+  device: "default"
+
+stt:
+  encoder: "/var/lib/xarlatan/models/stt/sherpa-onnx-whisper-base/base-encoder.onnx"
+  decoder: "/var/lib/xarlatan/models/stt/sherpa-onnx-whisper-base/base-decoder.onnx"
+  tokens: "/var/lib/xarlatan/models/stt/sherpa-onnx-whisper-base/base-tokens.txt"
+  language: "es"
+  translate: false
+
+llm:
+  mode: "managed"
+  server_binary: "/usr/local/bin/llama-server"
+  model: "/var/lib/xarlatan/models/llm/gemma-3-270m-it-Q4_K_M.gguf"
+  host: "127.0.0.1"
+  port: 8080
+  context_size: 4096
+  n_gpu_layers: 0
+  threads: 4
+  startup_timeout_ms: 60000
+  shutdown_timeout_ms: 5000
+  health_interval_ms: 250
+  temperature: 0.7
+  top_p: 0.9
+  max_tokens: 512
+  system_prompt: "Eres un asistente de voz local, breve y directo. Responde en el idioma del usuario."
+
+tts:
+  model: "/var/lib/xarlatan/models/tts/vits-piper-es_ES-davefx-medium/es_ES-davefx-medium.onnx"
+  tokens: "/var/lib/xarlatan/models/tts/vits-piper-es_ES-davefx-medium/tokens.txt"
+  data_dir: "/var/lib/xarlatan/models/tts/vits-piper-es_ES-davefx-medium/espeak-ng-data"
+  speaker_id: 0
+  length_scale: 1.0
+  noise_scale: 0.667
+  noise_w: 0.8
+
+tools:
+  filesystem:
+    enabled: false
+    root: ""
+    allow_mutations: false
+    max_read_bytes: 1048576
+    max_write_bytes: 1048576
+  web_search:
+    provider: "duckduckgo"
+    api_key: ""
+    base_url: ""
+
+log:
+  level: "info"
+  file: ""
