@@ -182,6 +182,24 @@ func run() error {
 		slog.Debug("stt", "ms", time.Since(t0).Milliseconds(), "text", text)
 		fmt.Printf("\n👤  %s\n", text)
 
+		prepared, err := memoryManager.Prepare(ctx, text)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			slog.Warn("memory prepare", "err", err)
+			status.Set("Escuchando")
+			continue
+		}
+		history = prepared.History
+		slog.Debug(
+			"memory prepare",
+			"input_bytes", prepared.Trace.InputBytes,
+			"output_bytes", prepared.Trace.OutputBytes,
+			"dropped_turns", prepared.Trace.DroppedTurns,
+			"summary_generated", prepared.Trace.SummaryGenerated,
+		)
+
 		status.Set("Pensando")
 		t0 = time.Now()
 		turn, err := agent.Run(ctx, orchestrator.Request{Input: text, History: history})
