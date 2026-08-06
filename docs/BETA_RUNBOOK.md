@@ -1,18 +1,18 @@
 # Xarlatan v0.4.0-beta.1 — primera prueba en Fedora
 
-Este runbook está preparado para el host `dakota-fedora` y el checkout histórico `~/Documents/projects/assistant`.
+Este runbook está preparado para `dakota-fedora` y el checkout `~/Documents/projects/xarlatan`.
 
 ## 1. Actualizar el checkout
 
 ```bash
-cd ~/Documents/projects/assistant
+cd ~/Documents/projects/xarlatan
 git fetch --all --tags --prune
 git switch main
 git pull --ff-only
 git status --short
 ```
 
-No continúes si el último comando muestra cambios personales que todavía no guardaste.
+No continúes si el último comando muestra cambios personales sin guardar.
 
 ## 2. Dependencias Fedora
 
@@ -22,7 +22,7 @@ sudo dnf install -y \
   golang alsa-utils alsa-lib-devel ShellCheck
 ```
 
-Comprueba los dispositivos visibles en la sesión:
+Comprueba los dispositivos visibles:
 
 ```bash
 arecord -L
@@ -37,29 +37,38 @@ make all VERSION=v0.4.0-beta.1
 ./bin/assistant -version
 ```
 
-La salida debe ser exactamente:
+La salida debe ser:
 
 ```text
 assistant v0.4.0-beta.1
 ```
 
-## 4. Modelos
+## 4. Descargar y validar modelos
 
-La configuración beta espera:
+La configuración beta utiliza:
 
 ```text
 models/stt/sherpa-onnx-whisper-base/
 models/tts/vits-piper-es_ES-davefx-medium/
-models/llm/gemma-3-270m-it-Q4_K_M.gguf
+models/llm/qwen2.5-0.5b-instruct-q4_k_m.gguf
 ```
 
-Descarga los que falten:
+Ejecuta:
 
 ```bash
 make models
 ```
 
-No borres modelos locales funcionales para repetir una descarga innecesaria.
+El LLM se descarga desde el repositorio público `Qwen/Qwen2.5-0.5B-Instruct-GGUF`, se valida mediante SHA-256 y solo después se mueve a su ruta final. Un archivo vacío, parcial o con checksum incorrecto no se acepta.
+
+### Recuperación desde la primera ejecución fallida
+
+La versión inicial intentaba descargar un Gemma restringido y podía dejar un archivo incompleto. Después de actualizar el checkout:
+
+```bash
+rm -f models/llm/gemma-3-270m-it-Q4_K_M.gguf
+make models
+```
 
 ## 5. Preflight desde el checkout
 
@@ -67,114 +76,99 @@ No borres modelos locales funcionales para repetir una descarga innecesaria.
 EXPECTED_VERSION=v0.4.0-beta.1 \
 XARLATAN_BIN=./bin/assistant \
 LLAMA_SERVER_BIN=./bin/llama-server \
-./scripts/preflight.sh ./config.yaml
+bash ./scripts/preflight.sh ./config.yaml
 ```
 
-No continúes si aparece un `FAIL`. Un `WARN` indicando que el usuario no pertenece al grupo `audio` puede ser compatible con PipeWire en foreground, pero la captura real debe confirmarlo.
+No continúes si aparece un `FAIL`.
 
-## 6. Instalar sin habilitar el arranque automático
+## 6. Instalar sin habilitar el servicio
 
 ```bash
 sudo make install
 sudo systemctl daemon-reload
 ```
 
-Verifica la instalación:
+La instalación preserva una configuración existente. Si `/etc/xarlatan/config.yaml` fue creado antes del hotfix, actualiza únicamente el modelo por defecto:
+
+```bash
+sudo sed -i \
+  's#gemma-3-270m-it-Q4_K_M.gguf#qwen2.5-0.5b-instruct-q4_k_m.gguf#' \
+  /etc/xarlatan/config.yaml
+```
+
+Verifica:
 
 ```bash
 /usr/local/bin/xarlatan -version
+grep 'model:' /etc/xarlatan/config.yaml
 sudo systemd-analyze verify /etc/systemd/system/xarlatan.service
 sudo systemd-analyze security --offline=yes /etc/systemd/system/xarlatan.service
 sudo -u xarlatan test -r /etc/xarlatan/config.yaml
 ```
 
-La instalación no habilita el servicio automáticamente.
-
 ## 7. Ejecutar la aceptación completa
-
-Desde el checkout:
 
 ```bash
 EXPECTED_VERSION=v0.4.0-beta.1 \
 AUDIO_DEVICE=default \
-./scripts/beta_acceptance.sh /etc/xarlatan/config.yaml
+bash ./scripts/beta_acceptance.sh /etc/xarlatan/config.yaml
 ```
 
-El script exige para un `PASS` final:
+Se usa `bash` deliberadamente para que el gate no dependa del bit ejecutable conservado por el método de checkout.
 
-1. preflight con binarios y configuración instalados;
-2. captura ALSA real de cuatro segundos;
-3. reproducción confirmada por vos;
-4. arranque, estabilidad inicial y parada de `xarlatan.service`;
-5. una interacción foreground completa `voz -> STT -> LLM -> TTS -> audio`;
-6. creación de `beta-acceptance-<timestamp>.md`.
+El script exige para un `PASS`:
 
-El reporte no contiene transcripción, prompt, respuesta ni secretos. Un resultado `PASS` es la evidencia que completa REL-003 y permite cerrar WI-09.
+1. preflight con binarios, configuración y modelos instalados;
+2. captura ALSA real;
+3. reproducción confirmada;
+4. arranque y parada de `xarlatan.service`;
+5. interacción completa `voz -> STT -> LLM -> TTS -> audio`;
+6. reporte `beta-acceptance-<timestamp>.md`.
 
 ## 8. Pregunta de prueba
-
-Cuando se abra la ventana foreground, usa una pregunta corta:
 
 ```text
 ¿Qué día viene después del lunes?
 ```
 
-Debes oír una respuesta coherente. Esta beta no evalúa wake word, escucha continua, streaming ni barge-in.
+Debes oír una respuesta coherente. Esta beta todavía no incluye wake word, captura continua, streaming ni barge-in.
 
-## 9. Habilitar el servicio solo después del PASS
+## 9. Habilitar después del PASS
 
 ```bash
 sudo systemctl enable --now xarlatan
 sudo systemctl status xarlatan --no-pager
-```
-
-Revisa logs operativos:
-
-```bash
 sudo journalctl -u xarlatan -n 80 --no-pager
 ```
 
 ## 10. Diagnóstico
 
-### `arecord: audio open error`
+### Error de audio
 
 ```bash
 arecord -L
 arecord -l
+aplay -l
 pactl info 2>/dev/null || true
 ```
 
-Prueba el foreground con `AUDIO_DEVICE=default`. Para systemd puede ser necesario configurar un dispositivo ALSA explícito obtenido de `arecord -l`; no adivines `hw:X,Y`.
-
-### El servicio falla pero foreground funciona
-
-Esto normalmente indica una diferencia entre ALSA y la sesión PipeWire del usuario.
-
-```bash
-sudo journalctl -u xarlatan -n 100 --no-pager
-sudo systemctl cat xarlatan
-arecord -l
-aplay -l
-```
-
-Mantén el servicio deshabilitado y usa foreground hasta fijar `audio.device` con un dispositivo accesible al usuario `xarlatan`.
+Para systemd puede ser necesario configurar un dispositivo ALSA explícito obtenido de `arecord -l`. No adivines `hw:X,Y`.
 
 ### El LLM no inicia
 
 ```bash
-/usr/local/bin/llama-server --version
 ls -lh /var/lib/xarlatan/models/llm/
+grep -A4 '^llm:' /etc/xarlatan/config.yaml
+/usr/local/bin/llama-server --version
 sudo journalctl -u xarlatan -n 100 --no-pager
 ```
-
-Confirma `llm.model`, `llm.server_binary`, host y puerto en `/etc/xarlatan/config.yaml`.
 
 ### STT o TTS falla
 
 ```bash
 ls -lh /var/lib/xarlatan/models/stt/sherpa-onnx-whisper-base/
 ls -lh /var/lib/xarlatan/models/tts/vits-piper-es_ES-davefx-medium/
-./scripts/preflight.sh /etc/xarlatan/config.yaml
+bash ./scripts/preflight.sh /etc/xarlatan/config.yaml
 ```
 
 ### Proceso huérfano
@@ -184,8 +178,6 @@ pgrep -a llama-server || true
 sudo systemctl stop xarlatan
 pgrep -a llama-server || true
 ```
-
-Después de detener Xarlatan no debe quedar un `llama-server` administrado por la aplicación.
 
 ## 11. Rollback
 
@@ -207,11 +199,11 @@ Para borrar también configuración, modelos y snapshot:
 sudo PURGE=1 make uninstall
 ```
 
-## 12. Evidencia a conservar
+## 12. Evidencia
 
-Conserva únicamente:
+Conserva:
 
 - `beta-acceptance-<timestamp>.md`;
-- salida de `/usr/local/bin/xarlatan -version`;
-- SHA del commit probado: `git rev-parse HEAD`;
-- resultado de `systemctl status` sin contenido conversacional.
+- `/usr/local/bin/xarlatan -version`;
+- `git rev-parse HEAD`;
+- `systemctl status` sin contenido conversacional.
