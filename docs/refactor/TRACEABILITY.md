@@ -74,15 +74,17 @@ WI-05 está implementado y su evidencia consolidada se encuentra en `docs/refact
 
 ## Memoria
 
-| ID | Requisito | Work item | Evidencia mínima |
+WI-06 está implementado y su evidencia consolidada se encuentra en `docs/refactor/WI-06_EVIDENCE.md`.
+
+| ID | Requisito | Work item | Evidencia automatizada exacta |
 |---|---|---|---|
-| MEM-001 | El prompt respeta un budget máximo | WI-06 | bounded memory tests |
-| MEM-002 | Existe un único system prompt confiable | WI-06 | system prompt test |
-| MEM-003 | Exchanges de tool se mantienen completos | WI-06 | tool exchange test |
-| MEM-004 | Conversación no se promueve a role system | WI-06 | hostile content test |
-| MEM-005 | Se descartan turnos completos más antiguos | WI-06 | eviction test |
-| MEM-006 | Un resumen nuevo reemplaza al anterior | WI-06 | replacement test |
-| MEM-007 | Conversación prolongada no produce crecimiento indefinido | WI-06 | long-run test |
+| MEM-001 | El prompt respeta un budget máximo | WI-06 | `TestMemoryNeverExceedsBudget`, `TestMemoryPrepareBoundsNextPrompt`, `TestMemoryPrepareRejectsInputLargerThanBudget` |
+| MEM-002 | Existe un único system prompt confiable | WI-06 | `TestMemoryKeepsSingleSystemPrompt` |
+| MEM-003 | Exchanges de tool se mantienen completos | WI-06 | `TestMemoryPreservesToolExchange`, `TestMemoryRejectsMalformedHistories` |
+| MEM-004 | Conversación no se promueve a role system | WI-06 | `TestMemoryDoesNotPromoteConversationToSystem` |
+| MEM-005 | Se descartan turnos completos más antiguos | WI-06 | `TestMemoryDropsOldestCompleteTurn`, `TestMemoryPrepareBoundsNextPrompt` |
+| MEM-006 | Un resumen nuevo reemplaza al anterior | WI-06 | `TestSummaryReplacesPreviousSummary`, `TestMemoryTruncatesOversizedUTF8Summary` |
+| MEM-007 | Conversación prolongada no produce crecimiento indefinido | WI-06 | `TestLongConversationRemainsBounded` |
 
 ## Audio y aplicación
 

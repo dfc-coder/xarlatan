@@ -53,11 +53,20 @@ jobs:
       - name: Test
         run: go test -count=1 -coverprofile=coverage.out ./...
 
-      - name: Repeat agent, tool, and LLM lifecycle tests
-        run: go test -count=20 ./internal/orchestrator ./internal/tools ./internal/llm
+      - name: Enforce memory coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 -coverprofile=memory-coverage.out ./internal/memory
+          coverage="$(go tool cover -func=memory-coverage.out | awk '/^total:/ {gsub("%", "", $3); print $3}')"
+          awk -v coverage="$coverage" 'BEGIN { if ((coverage + 0) < 80) exit 1 }'
+          printf 'memory coverage: %s%%\n' "$coverage"
 
-      - name: Race-test agent, tools, and LLM lifecycle
-        run: go test -race -count=1 ./internal/orchestrator ./internal/tools ./internal/llm
+      - name: Repeat agent, tool, LLM, and memory tests
+        run: go test -count=20 ./internal/orchestrator ./internal/tools ./internal/llm ./internal/memory
+
+      - name: Race-test agent, tools, LLM, and memory
+        run: go test -race -count=1 ./internal/orchestrator ./internal/tools ./internal/llm ./internal/memory
 
       - name: Build commands
         run: go build ./cmd/assistant ./cmd/calibrate
@@ -66,4 +75,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: coverage
-          path: coverage.out
+          path: |
+            coverage.out
+            memory-coverage.out
