@@ -19,10 +19,10 @@ La preparación de `v0.4.0-beta.1` puede validarse en CI y en un entorno descart
 
 - `scripts/tests/wi09_contract_test.sh` verifica assets, sintaxis, workflow, target de release, política de privacidad y preflight con fakes.
 - `scripts/preflight.sh` valida host, comandos, versión, binarios, modelos, loopback, filesystem deshabilitado y enumeración ALSA.
-- `scripts/beta_acceptance.sh` prueba captura, playback, servicio y pipeline real y emite un reporte sin contenido conversacional.
+- `scripts/beta_acceptance.sh` exige captura, playback, servicio y pipeline real y emite un reporte sin contenido conversacional.
 - `scripts/package_release.sh` crea un tar ordenado, normalizado y verificable mediante SHA-256.
 
-## Gates automatizados previstos
+## Gates automatizados
 
 ```bash
 gofmt -l .
@@ -36,16 +36,33 @@ bash scripts/tests/wi09_contract_test.sh
 make release-candidate VERSION=v0.4.0-beta.1
 sha256sum -c dist/SHA256SUMS
 systemd-analyze verify packaging/systemd/xarlatan.service
-systemd-analyze security --offline=yes --threshold=5 packaging/systemd/xarlatan.service
+systemd-analyze security --offline=yes --threshold=50 packaging/systemd/xarlatan.service
 ```
 
-## Evidencia disponible antes de CI
+`systemd-analyze --threshold` usa porcentaje. El valor `50` corresponde a 5,0/10; `--threshold=5` era incorrecto y fue corregido durante la validación de WI-09.
 
-- los nuevos scripts pasan `bash -n`;
-- los nuevos scripts pasan ShellCheck en un entorno aislado;
-- los nombres de paquetes Fedora `alsa-utils`, `alsa-lib-devel` y `ShellCheck` fueron verificados contra el catálogo de Fedora;
-- WI-08 ya demostró instalación repetida, rollback, uninstall, purge y exposición systemd 4.2/10;
-- no se registraron runs de Actions para PR #30; esa limitación quedó documentada y no se reutiliza como evidencia verde.
+## Validación ejecutada en entorno aislado
+
+- `bash -n` de scripts operativos y de release: PASS;
+- instalación en `DESTDIR`: PASS;
+- segunda instalación sin drift de artefactos: PASS;
+- rollback de actualización: PASS;
+- uninstall preservando configuración: PASS;
+- purge de configuración y datos: PASS;
+- `systemd-analyze verify`: PASS;
+- exposición systemd: 4,2/10, clasificación `OK`;
+- gate equivalente `--threshold=50`: PASS;
+- preflight con binarios, modelos, ALSA y configuración fake: PASS;
+- creación repetida del paquete con `SOURCE_DATE_EPOCH=0`: mismo SHA-256;
+- auditoría de issues abiertos: solo epic, WI-09 y work items de Fase 2; no aparece un issue P0 separado.
+
+La validación aislada no sustituye la suite Go sobre un checkout completo ni el hardware real. GitHub Actions no registró runs automáticos para los commits escritos por el conector, por lo que no se declara un run verde inexistente.
+
+## Defectos encontrados y corregidos
+
+1. CI construía `VERSION=0.4.0-ci` pero esperaba `assistant v0.4.0-ci`; se normalizó a `VERSION=v0.4.0-ci`.
+2. La aceptación podía terminar en `PASS` con systemd ausente; ahora el servicio instalado es obligatorio por defecto.
+3. El gate `systemd-analyze --threshold=5` interpretaba 5%, no 5,0/10; se cambió a `--threshold=50`.
 
 ## Auditoría P0
 
@@ -58,18 +75,16 @@ No se acepta el RC si existe un issue abierto que describa:
 - proceso administrado huérfano;
 - tool mutable habilitada por defecto.
 
-La auditoría final se registra en el PR antes del merge.
+La búsqueda de issues abiertos no encontró un issue P0 independiente con esas condiciones. Los work items abiertos pertenecen a WI-09 y Fase 2.
 
 ## Aceptación física
 
-Comando objetivo:
+Después de construir e instalar:
 
 ```bash
 EXPECTED_VERSION=v0.4.0-beta.1 \
-XARLATAN_BIN=./bin/assistant \
-LLAMA_SERVER_BIN=./bin/llama-server \
 AUDIO_DEVICE=default \
-./scripts/beta_acceptance.sh ./config.yaml
+./scripts/beta_acceptance.sh /etc/xarlatan/config.yaml
 ```
 
 Evidencia requerida:
