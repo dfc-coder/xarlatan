@@ -18,7 +18,7 @@ if [[ -z "$DESTDIR" && "$(id -u)" -ne 0 ]]; then
   die "run as root or set DESTDIR"
 fi
 
-if [[ "$SKIP_SYSTEMD" != "1" && -z "$DESTDIR" && -x "$(command -v systemctl || true)" ]]; then
+if [[ "$SKIP_SYSTEMD" != "1" && -z "$DESTDIR" ]] && command -v systemctl >/dev/null 2>&1; then
   systemctl disable --now xarlatan.service 2>/dev/null || true
 fi
 
@@ -33,13 +33,21 @@ if [[ "$PURGE" == "1" ]]; then
     "$(path_in_root "$SYSCONFDIR/xarlatan")" \
     "$(path_in_root "$LOCALSTATEDIR/xarlatan")"
   if [[ -z "$DESTDIR" ]]; then
-    id "$XARLATAN_USER" >/dev/null 2>&1 && userdel "$XARLATAN_USER" || true
-    getent group "$XARLATAN_GROUP" >/dev/null && groupdel "$XARLATAN_GROUP" || true
+    if id "$XARLATAN_USER" >/dev/null 2>&1; then
+      userdel "$XARLATAN_USER" || true
+    fi
+    if getent group "$XARLATAN_GROUP" >/dev/null; then
+      groupdel "$XARLATAN_GROUP" || true
+    fi
   fi
 fi
 
-if [[ "$SKIP_SYSTEMD" != "1" && -z "$DESTDIR" && -x "$(command -v systemctl || true)" ]]; then
+if [[ "$SKIP_SYSTEMD" != "1" && -z "$DESTDIR" ]] && command -v systemctl >/dev/null 2>&1; then
   systemctl daemon-reload
 fi
 
-printf 'Xarlatan uninstalled%s.\n' "$([[ "$PURGE" == "1" ]] && printf ' with purge' || true)"
+if [[ "$PURGE" == "1" ]]; then
+  printf 'Xarlatan uninstalled with purge.\n'
+else
+  printf 'Xarlatan uninstalled; config and models preserved.\n'
+fi
