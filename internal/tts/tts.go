@@ -5,24 +5,23 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
-	"os/exec"
 	"strings"
 
 	sherpa "github.com/k2-fsa/sherpa-onnx-go/sherpa_onnx"
 
+	"github.com/dfc-coder/xarlatan/internal/audio"
 	"github.com/dfc-coder/xarlatan/internal/config"
 )
 
-// Speaker synthesises speech via sherpa-onnx and plays it immediately.
-type Speaker struct {
-	cfg      config.TTSConfig
-	tts      *sherpa.OfflineTts
-	audioDev string
+// Synthesizer generates normalized mono speech buffers via sherpa-onnx.
+type Synthesizer struct {
+	cfg config.TTSConfig
+	tts *sherpa.OfflineTts
 }
 
-// New creates a Speaker.
-func New(cfg config.TTSConfig, audioDev string) (*Speaker, error) {
+// New creates an offline Synthesizer. The audioDev parameter is retained for
+// source compatibility; playback ownership now belongs to audio.Playback.
+func New(cfg config.TTSConfig, _ string) (*Synthesizer, error) {
 	ttsCfg := sherpa.OfflineTtsConfig{}
 	ttsCfg.Model.Vits.Model = cfg.Model
 	ttsCfg.Model.Vits.Tokens = cfg.Tokens
@@ -34,60 +33,56 @@ func New(cfg config.TTSConfig, audioDev string) (*Speaker, error) {
 	ttsCfg.Model.Provider = "cpu"
 	ttsCfg.Model.Debug = 0
 
-	tts := sherpa.NewOfflineTts(&ttsCfg)
-	if tts == nil {
+	engine := sherpa.NewOfflineTts(&ttsCfg)
+	if engine == nil {
 		return nil, fmt.Errorf("sherpa tts: nil")
 	}
-
-	return &Speaker{cfg: cfg, tts: tts, audioDev: audioDev}, nil
+	return &Synthesizer{cfg: cfg, tts: engine}, nil
 }
 
 // Close releases model resources.
-func (s *Speaker) Close() error {
-	if s.tts != nil {
+func (s *Synthesizer) Close() error {
+	if s != nil && s.tts != nil {
 		sherpa.DeleteOfflineTts(s.tts)
 		s.tts = nil
 	}
 	return nil
 }
 
-// Speak synthesises text and plays it through the speaker.
-func (s *Speaker) Speak(ctx context.Context, text string) error {
+// Synthesize generates one normalized mono audio buffer. Offline generation
+// cannot be preempted once CGo enters sherpa, so context is checked before and
+// immediately after the generation boundary.
+func (s *Synthesizer) Synthesize(ctx context.Context, text string) (audio.Buffer, error) {
+	if s == nil || s.tts == nil {
+		return audio.Buffer{}, fmt.Errorf("synthesizer is not initialized")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return audio.Buffer{}, err
+	}
 	text = strings.TrimSpace(text)
 	if text == "" {
-		return nil
+		return audio.Buffer{}, nil
 	}
 
-	audio, err := s.Synthesise(text)
+	generated, err := s.Synthesise(text)
 	if err != nil {
-		return err
+		return audio.Buffer{}, err
 	}
-
-	tmp, err := os.CreateTemp("", "assistant-tts-*.wav")
-	if err != nil {
-		return fmt.Errorf("create temp wav: %w", err)
+	if err := ctx.Err(); err != nil {
+		return audio.Buffer{}, err
 	}
-	name := tmp.Name()
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(name)
-		return fmt.Errorf("close temp wav: %w", err)
-	}
-	defer os.Remove(name)
-
-	if !audio.Save(name) {
-		return fmt.Errorf("saving synthesized wav")
-	}
-
-	cmd := exec.CommandContext(ctx, "aplay", "-D", s.audioDev, name)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		slog.Debug("aplay output", "out", string(out))
-		return fmt.Errorf("aplay: %w", err)
-	}
-	return nil
+	return audio.Buffer{
+		Samples:    append([]float32(nil), generated.Samples...),
+		SampleRate: generated.SampleRate,
+		Channels:   1,
+	}, nil
 }
 
-// Synthesise generates speech audio for the given text.
-func (s *Speaker) Synthesise(text string) (*sherpa.GeneratedAudio, error) {
+// Synthesise retains direct access to sherpa output for low-level callers.
+func (s *Synthesizer) Synthesise(text string) (*sherpa.GeneratedAudio, error) {
 	genCfg := sherpa.GenerationConfig{
 		SilenceScale: 0.2,
 		Speed:        1.0,
@@ -95,9 +90,9 @@ func (s *Speaker) Synthesise(text string) (*sherpa.GeneratedAudio, error) {
 	}
 
 	slog.Debug("sherpa tts synthesise", "chars", len(text))
-	audio := s.tts.GenerateWithConfig(text, &genCfg, nil)
-	if audio == nil {
+	generated := s.tts.GenerateWithConfig(text, &genCfg, nil)
+	if generated == nil {
 		return nil, fmt.Errorf("sherpa tts: nil generated audio")
 	}
-	return audio, nil
+	return generated, nil
 }
