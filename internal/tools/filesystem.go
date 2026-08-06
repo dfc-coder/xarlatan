@@ -3,7 +3,9 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -11,18 +13,189 @@ import (
 	"time"
 )
 
-// safePath resolves p inside rootDir and rejects path-traversal attempts.
-// rootDir="" disables the check (unrestricted mode).
-func safePath(rootDir, p string) (string, error) {
-	if rootDir == "" {
-		return filepath.Clean(p), nil
+const (
+	defaultMaxReadBytes  int64 = 1 << 20
+	defaultMaxWriteBytes int64 = 1 << 20
+)
+
+// FilesystemErrorCode identifies a sandbox policy or boundary failure.
+type FilesystemErrorCode string
+
+const (
+	FilesystemInvalidRoot   FilesystemErrorCode = "invalid_root"
+	FilesystemInvalidPath   FilesystemErrorCode = "invalid_path"
+	FilesystemPathEscape    FilesystemErrorCode = "path_escape"
+	FilesystemRootProtected FilesystemErrorCode = "root_protected"
+	FilesystemReadLimit     FilesystemErrorCode = "read_limit"
+	FilesystemWriteLimit    FilesystemErrorCode = "write_limit"
+)
+
+// FilesystemError is returned before an unsafe filesystem operation occurs.
+type FilesystemError struct {
+	Code FilesystemErrorCode
+	Path string
+	Err  error
+}
+
+func (e *FilesystemError) Error() string {
+	if e == nil {
+		return "filesystem error"
 	}
-	root := filepath.Clean(rootDir)
-	abs := filepath.Clean(filepath.Join(root, p))
-	if abs != root && !strings.HasPrefix(abs, root+string(os.PathSeparator)) {
-		return "", fmt.Errorf("path %q escapes allowed root %q", p, rootDir)
+	if e.Err != nil {
+		return fmt.Sprintf("filesystem %s for %q: %v", e.Code, e.Path, e.Err)
 	}
-	return abs, nil
+	return fmt.Sprintf("filesystem %s for %q", e.Code, e.Path)
+}
+
+func (e *FilesystemError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
+// IsFilesystemError reports whether err has the requested filesystem code.
+func IsFilesystemError(err error, code FilesystemErrorCode) bool {
+	var target *FilesystemError
+	return errors.As(err, &target) && target.Code == code
+}
+
+// FilesystemSandbox owns the canonical root and hard payload limits shared by
+// all filesystem tools in one registry.
+type FilesystemSandbox struct {
+	root          string
+	maxReadBytes  int64
+	maxWriteBytes int64
+}
+
+// NewFilesystemSandbox resolves root once and rejects missing, non-directory,
+// or filesystem-root sandboxes.
+func NewFilesystemSandbox(root string, maxReadBytes, maxWriteBytes int64) (*FilesystemSandbox, error) {
+	if strings.TrimSpace(root) == "" {
+		return nil, &FilesystemError{Code: FilesystemInvalidRoot, Path: root, Err: errors.New("sandbox root is required")}
+	}
+	absolute, err := filepath.Abs(root)
+	if err != nil {
+		return nil, &FilesystemError{Code: FilesystemInvalidRoot, Path: root, Err: err}
+	}
+	canonical, err := filepath.EvalSymlinks(absolute)
+	if err != nil {
+		return nil, &FilesystemError{Code: FilesystemInvalidRoot, Path: root, Err: err}
+	}
+	canonical = filepath.Clean(canonical)
+	volumeRoot := filepath.VolumeName(canonical) + string(os.PathSeparator)
+	if canonical == volumeRoot {
+		return nil, &FilesystemError{Code: FilesystemInvalidRoot, Path: root, Err: errors.New("filesystem root cannot be used as sandbox")}
+	}
+	info, err := os.Stat(canonical)
+	if err != nil {
+		return nil, &FilesystemError{Code: FilesystemInvalidRoot, Path: root, Err: err}
+	}
+	if !info.IsDir() {
+		return nil, &FilesystemError{Code: FilesystemInvalidRoot, Path: root, Err: errors.New("sandbox root is not a directory")}
+	}
+	if maxReadBytes <= 0 {
+		maxReadBytes = defaultMaxReadBytes
+	}
+	if maxWriteBytes <= 0 {
+		maxWriteBytes = defaultMaxWriteBytes
+	}
+	return &FilesystemSandbox{root: canonical, maxReadBytes: maxReadBytes, maxWriteBytes: maxWriteBytes}, nil
+}
+
+func (s *FilesystemSandbox) resolve(path string, mutation bool) (string, error) {
+	if s == nil {
+		return "", &FilesystemError{Code: FilesystemInvalidRoot, Path: path, Err: errors.New("sandbox is nil")}
+	}
+	trimmed := strings.TrimSpace(path)
+	var candidate string
+	if filepath.IsAbs(trimmed) {
+		candidate = filepath.Clean(trimmed)
+	} else {
+		candidate = filepath.Clean(filepath.Join(s.root, trimmed))
+	}
+	if !withinRoot(s.root, candidate) {
+		return "", &FilesystemError{Code: FilesystemPathEscape, Path: path, Err: errors.New("path escapes sandbox root")}
+	}
+	if mutation && (trimmed == "" || candidate == s.root) {
+		return "", &FilesystemError{Code: FilesystemRootProtected, Path: path, Err: errors.New("sandbox root cannot be mutated")}
+	}
+
+	resolved, err := resolveExistingOrParent(candidate)
+	if err != nil {
+		return "", &FilesystemError{Code: FilesystemInvalidPath, Path: path, Err: err}
+	}
+	if !withinRoot(s.root, resolved) {
+		return "", &FilesystemError{Code: FilesystemPathEscape, Path: path, Err: errors.New("resolved path escapes sandbox root")}
+	}
+	if mutation {
+		if info, lstatErr := os.Lstat(candidate); lstatErr == nil && info.Mode()&os.ModeSymlink != 0 {
+			return "", &FilesystemError{Code: FilesystemInvalidPath, Path: path, Err: errors.New("mutating a symbolic link is not allowed")}
+		} else if lstatErr != nil && !errors.Is(lstatErr, os.ErrNotExist) {
+			return "", &FilesystemError{Code: FilesystemInvalidPath, Path: path, Err: lstatErr}
+		}
+	}
+	return resolved, nil
+}
+
+func resolveExistingOrParent(candidate string) (string, error) {
+	current := filepath.Clean(candidate)
+	missing := make([]string, 0, 4)
+	for {
+		_, err := os.Lstat(current)
+		switch {
+		case err == nil:
+			resolved, evalErr := filepath.EvalSymlinks(current)
+			if evalErr != nil {
+				return "", evalErr
+			}
+			for i := len(missing) - 1; i >= 0; i-- {
+				resolved = filepath.Join(resolved, missing[i])
+			}
+			return filepath.Clean(resolved), nil
+		case errors.Is(err, os.ErrNotExist):
+			parent := filepath.Dir(current)
+			if parent == current {
+				return "", err
+			}
+			missing = append(missing, filepath.Base(current))
+			current = parent
+		default:
+			return "", err
+		}
+	}
+}
+
+func withinRoot(root, candidate string) bool {
+	relative, err := filepath.Rel(root, candidate)
+	if err != nil {
+		return false
+	}
+	return relative == "." || (relative != ".." && !strings.HasPrefix(relative, ".."+string(os.PathSeparator)))
+}
+
+// safePath is kept as the package-level boundary helper used by tests and
+// legacy callers. Runtime construction should share one FilesystemSandbox.
+func safePath(rootDir, path string) (string, error) {
+	sandbox, err := NewFilesystemSandbox(rootDir, defaultMaxReadBytes, defaultMaxWriteBytes)
+	if err != nil {
+		return "", err
+	}
+	return sandbox.resolve(path, false)
+}
+
+func sandboxFor(root string, maxReadBytes, maxWriteBytes int64, existing *FilesystemSandbox) (*FilesystemSandbox, error) {
+	if existing != nil {
+		return existing, nil
+	}
+	return NewFilesystemSandbox(root, maxReadBytes, maxWriteBytes)
+}
+
+func checkContext(ctx context.Context) error {
+	if ctx == nil {
+		return nil
+	}
+	return ctx.Err()
 }
 
 // humanSize formats a byte count for human reading.
@@ -39,268 +212,406 @@ func humanSize(b int64) string {
 	}
 }
 
-// unmarshal is a tiny DRY helper used by every Execute method.
-func unmarshal(raw json.RawMessage, v any) error { return json.Unmarshal(raw, v) }
-
-// ─── fs_read ──────────────────────────────────────────────────────────────────
+func unmarshal(raw json.RawMessage, value any) error { return json.Unmarshal(raw, value) }
 
 // FSRead reads the content of a file.
-type FSRead struct{ RootDir string }
+type FSRead struct {
+	RootDir string
+	MaxBytes int64
+	Sandbox *FilesystemSandbox
+}
 
 func (t FSRead) Name() string        { return "fs_read" }
-func (t FSRead) Description() string { return "Read a file's text content." }
+func (t FSRead) Description() string { return "Read a text file inside the configured sandbox." }
 func (t FSRead) Schema() ParameterSchema {
 	return NewSchema([]string{"path"}, map[string]Property{
-		"path":      {Type: "string", Description: "File path to read"},
-		"max_bytes": {Type: "integer", Description: "Bytes to return (default 32768)"},
+		"path":      {Type: "string", Description: "File path relative to the sandbox"},
+		"max_bytes": {Type: "integer", Description: "Optional response truncation below the configured hard limit"},
 	})
 }
-func (t FSRead) Execute(_ context.Context, raw json.RawMessage) Result {
-	var a struct {
-		Path     string `json:"path"`
-		MaxBytes int    `json:"max_bytes"`
+func (t FSRead) Execute(ctx context.Context, raw json.RawMessage) Result {
+	if err := checkContext(ctx); err != nil {
+		return Errorf("read cancelled: %v", err)
 	}
-	if err := unmarshal(raw, &a); err != nil {
+	var args struct {
+		Path     string `json:"path"`
+		MaxBytes int64  `json:"max_bytes"`
+	}
+	if err := unmarshal(raw, &args); err != nil {
 		return Errorf("invalid args: %v", err)
 	}
-	if a.MaxBytes <= 0 {
-		a.MaxBytes = 32768
-	}
-	p, err := safePath(t.RootDir, a.Path)
+	sandbox, err := sandboxFor(t.RootDir, t.MaxBytes, defaultMaxWriteBytes, t.Sandbox)
 	if err != nil {
 		return Errorf("%v", err)
 	}
-	f, err := os.Open(p)
+	path, err := sandbox.resolve(args.Path, false)
 	if err != nil {
-		return Errorf("open %q: %v", p, err)
+		return Errorf("%v", err)
 	}
-	defer f.Close()
-
-	buf := make([]byte, a.MaxBytes)
-	n, _ := f.Read(buf)
-	suffix := ""
-	if info, _ := f.Stat(); info != nil && info.Size() > int64(a.MaxBytes) {
-		suffix = fmt.Sprintf("\n[truncated: %d/%d bytes]", n, info.Size())
+	file, err := os.Open(path)
+	if err != nil {
+		return Errorf("open %q: %v", path, err)
 	}
-	return Result{Content: string(buf[:n]) + suffix}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return Errorf("stat %q: %v", path, err)
+	}
+	if !info.Mode().IsRegular() {
+		return Errorf("read %q: not a regular file", path)
+	}
+	if info.Size() > sandbox.maxReadBytes {
+		return Errorf("read limit exceeded: %d bytes exceeds %d", info.Size(), sandbox.maxReadBytes)
+	}
+	data, err := io.ReadAll(io.LimitReader(file, sandbox.maxReadBytes+1))
+	if err != nil {
+		return Errorf("read %q: %v", path, err)
+	}
+	if int64(len(data)) > sandbox.maxReadBytes {
+		return Errorf("read limit exceeded: file grew beyond %d bytes", sandbox.maxReadBytes)
+	}
+	if args.MaxBytes > 0 && args.MaxBytes < int64(len(data)) {
+		returned := args.MaxBytes
+		return Result{Content: string(data[:returned]) + fmt.Sprintf("\n[truncated: %d/%d bytes]", returned, len(data))}
+	}
+	return Result{Content: string(data)}
 }
 
-// ─── fs_write ─────────────────────────────────────────────────────────────────
-
-// FSWrite writes or appends content to a file.
-type FSWrite struct{ RootDir string }
+// FSWrite writes or appends content atomically inside the sandbox.
+type FSWrite struct {
+	RootDir string
+	MaxBytes int64
+	Sandbox *FilesystemSandbox
+}
 
 func (t FSWrite) Name() string { return "fs_write" }
 func (t FSWrite) Description() string {
-	return "Write or append text to a file. Creates parent dirs as needed."
+	return "Atomically write or append text to a file inside the configured sandbox."
 }
 func (t FSWrite) Schema() ParameterSchema {
 	return NewSchema([]string{"path", "content"}, map[string]Property{
-		"path":    {Type: "string", Description: "Destination file path"},
+		"path":    {Type: "string", Description: "Destination path relative to the sandbox"},
 		"content": {Type: "string", Description: "Text to write"},
-		"append":  {Type: "boolean", Description: "Append instead of overwrite (default false)"},
+		"append":  {Type: "boolean", Description: "Append using an atomic replacement"},
 	})
 }
-func (t FSWrite) Execute(_ context.Context, raw json.RawMessage) Result {
-	var a struct {
+func (t FSWrite) Execute(ctx context.Context, raw json.RawMessage) Result {
+	if err := checkContext(ctx); err != nil {
+		return Errorf("write cancelled: %v", err)
+	}
+	var args struct {
 		Path    string `json:"path"`
 		Content string `json:"content"`
 		Append  bool   `json:"append"`
 	}
-	if err := unmarshal(raw, &a); err != nil {
+	if err := unmarshal(raw, &args); err != nil {
 		return Errorf("invalid args: %v", err)
 	}
-	p, err := safePath(t.RootDir, a.Path)
+	sandbox, err := sandboxFor(t.RootDir, defaultMaxReadBytes, t.MaxBytes, t.Sandbox)
 	if err != nil {
 		return Errorf("%v", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+	if int64(len(args.Content)) > sandbox.maxWriteBytes {
+		return Errorf("write limit exceeded: %d bytes exceeds %d", len(args.Content), sandbox.maxWriteBytes)
+	}
+	path, err := sandbox.resolve(args.Path, true)
+	if err != nil {
+		return Errorf("%v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return Errorf("mkdir: %v", err)
 	}
-	flags := os.O_CREATE | os.O_WRONLY
-	if a.Append {
-		flags |= os.O_APPEND
-	} else {
-		flags |= os.O_TRUNC
-	}
-	f, err := os.OpenFile(p, flags, 0o644)
+	path, err = sandbox.resolve(args.Path, true)
 	if err != nil {
-		return Errorf("open: %v", err)
+		return Errorf("%v", err)
 	}
-	defer f.Close()
-	n, err := f.WriteString(a.Content)
-	if err != nil {
-		return Errorf("write: %v", err)
+
+	data := []byte(args.Content)
+	mode := fs.FileMode(0o644)
+	if info, statErr := os.Stat(path); statErr == nil {
+		if !info.Mode().IsRegular() {
+			return Errorf("write %q: destination is not a regular file", path)
+		}
+		mode = info.Mode().Perm()
+		if args.Append {
+			if info.Size()+int64(len(data)) > sandbox.maxWriteBytes {
+				return Errorf("write limit exceeded: resulting file exceeds %d bytes", sandbox.maxWriteBytes)
+			}
+			existing, readErr := os.ReadFile(path)
+			if readErr != nil {
+				return Errorf("read existing file: %v", readErr)
+			}
+			data = append(existing, data...)
+		}
+	} else if !errors.Is(statErr, os.ErrNotExist) {
+		return Errorf("stat destination: %v", statErr)
 	}
-	return Result{Content: fmt.Sprintf("wrote %d bytes to %q", n, p)}
+	if err := checkContext(ctx); err != nil {
+		return Errorf("write cancelled: %v", err)
+	}
+	if err := atomicWriteFile(path, data, mode, os.Rename); err != nil {
+		return Errorf("atomic write: %v", err)
+	}
+	return Result{Content: fmt.Sprintf("wrote %d bytes to %q", len(args.Content), path)}
 }
 
-// ─── fs_list ──────────────────────────────────────────────────────────────────
+func atomicWriteFile(path string, data []byte, mode fs.FileMode, rename func(string, string) error) error {
+	if rename == nil {
+		rename = os.Rename
+	}
+	directory := filepath.Dir(path)
+	temporary, err := os.CreateTemp(directory, ".xarlatan-write-*")
+	if err != nil {
+		return err
+	}
+	temporaryPath := temporary.Name()
+	closed := false
+	defer func() {
+		if !closed {
+			_ = temporary.Close()
+		}
+		_ = os.Remove(temporaryPath)
+	}()
+	if err := temporary.Chmod(mode.Perm()); err != nil {
+		return err
+	}
+	if _, err := temporary.Write(data); err != nil {
+		return err
+	}
+	if err := temporary.Sync(); err != nil {
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	closed = true
+	if err := rename(temporaryPath, path); err != nil {
+		return err
+	}
+	if directoryHandle, err := os.Open(directory); err == nil {
+		_ = directoryHandle.Sync()
+		_ = directoryHandle.Close()
+	}
+	return nil
+}
 
-// FSList lists a directory.
-type FSList struct{ RootDir string }
+// FSList lists a directory without following child symlinks.
+type FSList struct {
+	RootDir string
+	Sandbox *FilesystemSandbox
+}
 
 func (t FSList) Name() string        { return "fs_list" }
-func (t FSList) Description() string { return "List files and directories at a path." }
+func (t FSList) Description() string { return "List files and directories inside the configured sandbox." }
 func (t FSList) Schema() ParameterSchema {
 	return NewSchema([]string{"path"}, map[string]Property{
-		"path":      {Type: "string", Description: "Directory to list"},
-		"recursive": {Type: "boolean", Description: "Recurse subdirectories (default false)"},
-		"max_items": {Type: "integer", Description: "Max entries (default 200)"},
+		"path":      {Type: "string", Description: "Directory path relative to the sandbox"},
+		"recursive": {Type: "boolean", Description: "Recurse into real subdirectories"},
+		"max_items": {Type: "integer", Description: "Maximum entries, default 200"},
 	})
 }
-func (t FSList) Execute(_ context.Context, raw json.RawMessage) Result {
-	var a struct {
+func (t FSList) Execute(ctx context.Context, raw json.RawMessage) Result {
+	if err := checkContext(ctx); err != nil {
+		return Errorf("list cancelled: %v", err)
+	}
+	var args struct {
 		Path      string `json:"path"`
 		Recursive bool   `json:"recursive"`
 		MaxItems  int    `json:"max_items"`
 	}
-	if err := unmarshal(raw, &a); err != nil {
+	if err := unmarshal(raw, &args); err != nil {
 		return Errorf("invalid args: %v", err)
 	}
-	if a.MaxItems <= 0 {
-		a.MaxItems = 200
+	if args.MaxItems <= 0 {
+		args.MaxItems = 200
 	}
-	p, err := safePath(t.RootDir, a.Path)
+	sandbox, err := sandboxFor(t.RootDir, defaultMaxReadBytes, defaultMaxWriteBytes, t.Sandbox)
 	if err != nil {
 		return Errorf("%v", err)
 	}
+	path, err := sandbox.resolve(args.Path, false)
+	if err != nil {
+		return Errorf("%v", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return Errorf("stat %q: %v", path, err)
+	}
+	if !info.IsDir() {
+		return Errorf("list %q: not a directory", path)
+	}
 
-	var lines []string
-	filepath.WalkDir(p, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || len(lines) >= a.MaxItems {
+	lines := make([]string, 0, args.MaxItems)
+	walkErr := filepath.WalkDir(path, func(current string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if err := checkContext(ctx); err != nil {
+			return err
+		}
+		if current == path {
 			return nil
 		}
-		rel, _ := filepath.Rel(p, path)
-		if rel == "." {
-			return nil
+		if len(lines) >= args.MaxItems {
+			return fs.SkipAll
+		}
+		relative, err := filepath.Rel(path, current)
+		if err != nil {
+			return err
 		}
 		size := ""
-		if !d.IsDir() {
-			if info, _ := d.Info(); info != nil {
-				size = humanSize(info.Size())
+		if entry.Type().IsRegular() {
+			if entryInfo, infoErr := entry.Info(); infoErr == nil {
+				size = humanSize(entryInfo.Size())
 			}
 		}
 		suffix := ""
-		if d.IsDir() {
+		if entry.IsDir() {
 			suffix = "/"
-			if !a.Recursive {
-				defer func() {}() // keep walking but skip contents
-				return fs.SkipDir
-			}
 		}
-		lines = append(lines, fmt.Sprintf("%s%s\t%s", rel, suffix, size))
+		lines = append(lines, fmt.Sprintf("%s%s\t%s", relative, suffix, size))
+		if entry.IsDir() && !args.Recursive {
+			return fs.SkipDir
+		}
 		return nil
 	})
-
+	if walkErr != nil {
+		return Errorf("list %q: %v", path, walkErr)
+	}
 	if len(lines) == 0 {
 		return Result{Content: "(empty)"}
 	}
-	out := strings.Join(lines, "\n")
-	if len(lines) >= a.MaxItems {
-		out += fmt.Sprintf("\n[limited to %d entries]", a.MaxItems)
+	output := strings.Join(lines, "\n")
+	if len(lines) >= args.MaxItems {
+		output += fmt.Sprintf("\n[limited to %d entries]", args.MaxItems)
 	}
-	return Result{Content: out}
+	return Result{Content: output}
 }
 
-// ─── fs_delete ────────────────────────────────────────────────────────────────
-
-// FSDelete deletes a file or directory.
-type FSDelete struct{ RootDir string }
+// FSDelete deletes a non-root file or directory inside the sandbox.
+type FSDelete struct {
+	RootDir string
+	Sandbox *FilesystemSandbox
+}
 
 func (t FSDelete) Name() string        { return "fs_delete" }
-func (t FSDelete) Description() string { return "Delete a file or directory." }
+func (t FSDelete) Description() string { return "Delete a non-root file or directory inside the configured sandbox." }
 func (t FSDelete) Schema() ParameterSchema {
 	return NewSchema([]string{"path"}, map[string]Property{
-		"path":      {Type: "string", Description: "Path to delete"},
+		"path":      {Type: "string", Description: "Path relative to the sandbox"},
 		"recursive": {Type: "boolean", Description: "Remove directories recursively"},
 	})
 }
-func (t FSDelete) Execute(_ context.Context, raw json.RawMessage) Result {
-	var a struct {
+func (t FSDelete) Execute(ctx context.Context, raw json.RawMessage) Result {
+	if err := checkContext(ctx); err != nil {
+		return Errorf("delete cancelled: %v", err)
+	}
+	var args struct {
 		Path      string `json:"path"`
 		Recursive bool   `json:"recursive"`
 	}
-	if err := unmarshal(raw, &a); err != nil {
+	if err := unmarshal(raw, &args); err != nil {
 		return Errorf("invalid args: %v", err)
 	}
-	p, err := safePath(t.RootDir, a.Path)
+	sandbox, err := sandboxFor(t.RootDir, defaultMaxReadBytes, defaultMaxWriteBytes, t.Sandbox)
 	if err != nil {
 		return Errorf("%v", err)
 	}
-	if a.Recursive {
-		err = os.RemoveAll(p)
+	path, err := sandbox.resolve(args.Path, true)
+	if err != nil {
+		return Errorf("%v", err)
+	}
+	if args.Recursive {
+		err = os.RemoveAll(path)
 	} else {
-		err = os.Remove(p)
+		err = os.Remove(path)
 	}
 	if err != nil {
-		return Errorf("%v", err)
+		return Errorf("delete %q: %v", path, err)
 	}
-	return Result{Content: fmt.Sprintf("deleted %q", p)}
+	return Result{Content: fmt.Sprintf("deleted %q", path)}
 }
 
-// ─── fs_stat ──────────────────────────────────────────────────────────────────
-
-// FSStat returns metadata about a path.
-type FSStat struct{ RootDir string }
+// FSStat returns metadata about a path inside the sandbox.
+type FSStat struct {
+	RootDir string
+	Sandbox *FilesystemSandbox
+}
 
 func (t FSStat) Name() string { return "fs_stat" }
 func (t FSStat) Description() string {
-	return "Get size, permissions, and modification time of a file or directory."
+	return "Get size, permissions, and modification time inside the configured sandbox."
 }
 func (t FSStat) Schema() ParameterSchema {
 	return NewSchema([]string{"path"}, map[string]Property{
-		"path": {Type: "string", Description: "Path to inspect"},
+		"path": {Type: "string", Description: "Path relative to the sandbox"},
 	})
 }
-func (t FSStat) Execute(_ context.Context, raw json.RawMessage) Result {
-	var a struct {
+func (t FSStat) Execute(ctx context.Context, raw json.RawMessage) Result {
+	if err := checkContext(ctx); err != nil {
+		return Errorf("stat cancelled: %v", err)
+	}
+	var args struct {
 		Path string `json:"path"`
 	}
-	if err := unmarshal(raw, &a); err != nil {
+	if err := unmarshal(raw, &args); err != nil {
 		return Errorf("invalid args: %v", err)
 	}
-	p, err := safePath(t.RootDir, a.Path)
+	sandbox, err := sandboxFor(t.RootDir, defaultMaxReadBytes, defaultMaxWriteBytes, t.Sandbox)
 	if err != nil {
 		return Errorf("%v", err)
 	}
-	info, err := os.Stat(p)
+	path, err := sandbox.resolve(args.Path, false)
 	if err != nil {
 		return Errorf("%v", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return Errorf("stat %q: %v", path, err)
 	}
 	kind := "file"
 	if info.IsDir() {
 		kind = "directory"
 	}
-	return Result{Content: fmt.Sprintf("type: %s\nsize: %s\nmode: %s\nmodified: %s",
-		kind, humanSize(info.Size()), info.Mode(), info.ModTime().Format(time.RFC3339))}
+	return Result{Content: fmt.Sprintf("type: %s\nsize: %s\nmode: %s\nmodified: %s", kind, humanSize(info.Size()), info.Mode(), info.ModTime().Format(time.RFC3339))}
 }
 
-// ─── fs_mkdir ─────────────────────────────────────────────────────────────────
-
-// FSMkdir creates a directory tree.
-type FSMkdir struct{ RootDir string }
+// FSMkdir creates a non-root directory tree inside the sandbox.
+type FSMkdir struct {
+	RootDir string
+	Sandbox *FilesystemSandbox
+}
 
 func (t FSMkdir) Name() string        { return "fs_mkdir" }
-func (t FSMkdir) Description() string { return "Create a directory and any missing parents." }
+func (t FSMkdir) Description() string { return "Create a directory tree inside the configured sandbox." }
 func (t FSMkdir) Schema() ParameterSchema {
 	return NewSchema([]string{"path"}, map[string]Property{
-		"path": {Type: "string", Description: "Directory path to create"},
+		"path": {Type: "string", Description: "Directory path relative to the sandbox"},
 	})
 }
-func (t FSMkdir) Execute(_ context.Context, raw json.RawMessage) Result {
-	var a struct {
+func (t FSMkdir) Execute(ctx context.Context, raw json.RawMessage) Result {
+	if err := checkContext(ctx); err != nil {
+		return Errorf("mkdir cancelled: %v", err)
+	}
+	var args struct {
 		Path string `json:"path"`
 	}
-	if err := unmarshal(raw, &a); err != nil {
+	if err := unmarshal(raw, &args); err != nil {
 		return Errorf("invalid args: %v", err)
 	}
-	p, err := safePath(t.RootDir, a.Path)
+	sandbox, err := sandboxFor(t.RootDir, defaultMaxReadBytes, defaultMaxWriteBytes, t.Sandbox)
 	if err != nil {
 		return Errorf("%v", err)
 	}
-	if err := os.MkdirAll(p, 0o755); err != nil {
+	path, err := sandbox.resolve(args.Path, true)
+	if err != nil {
 		return Errorf("%v", err)
 	}
-	return Result{Content: fmt.Sprintf("created %q", p)}
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		return Errorf("mkdir %q: %v", path, err)
+	}
+	if _, err := sandbox.resolve(args.Path, true); err != nil {
+		return Errorf("%v", err)
+	}
+	return Result{Content: fmt.Sprintf("created %q", path)}
 }
