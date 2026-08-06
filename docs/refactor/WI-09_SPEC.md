@@ -80,8 +80,10 @@ bash scripts/tests/wi09_contract_test.sh
 make release-candidate VERSION=v0.4.0-beta.1
 sha256sum -c dist/SHA256SUMS
 systemd-analyze verify packaging/systemd/xarlatan.service
-systemd-analyze security --offline=yes --threshold=5 packaging/systemd/xarlatan.service
+systemd-analyze security --offline=yes --threshold=50 packaging/systemd/xarlatan.service
 ```
+
+`systemd-analyze --threshold` usa una escala porcentual 0..100; `50` representa una exposición máxima de 5,0/10.
 
 ## Política de cierre
 
