@@ -69,8 +69,11 @@ func TestAgentHonorsDeadlineDuringModelGeneration(t *testing.T) {
 	if !IsRuntimeErrorCode(err, RuntimeDeadlineExceeded) {
 		t.Fatalf("Run() error = %v, want %q", err, RuntimeDeadlineExceeded)
 	}
-	if got, want := result.Trace.StopReason, StopModelError; got != want {
+	if got, want := result.Trace.StopReason, StopDeadlineExceeded; got != want {
 		t.Fatalf("trace StopReason = %q, want %q", got, want)
+	}
+	if got, want := result.Trace.Rounds[0].StopReason, StopDeadlineExceeded; got != want {
+		t.Fatalf("round StopReason = %q, want %q", got, want)
 	}
 }
 
