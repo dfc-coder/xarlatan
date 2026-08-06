@@ -22,6 +22,7 @@ assert_contains "$ROOT/Makefile" 'release-candidate:'
 assert_contains "$ROOT/.github/workflows/release-candidate.yml" 'v*-beta.*'
 assert_contains "$ROOT/docs/BETA_RUNBOOK.md" 'dakota-fedora'
 assert_contains "$ROOT/scripts/beta_acceptance.sh" 'VOICE_PIPELINE'
+assert_contains "$ROOT/scripts/beta_acceptance.sh" 'REQUIRE_SERVICE="${REQUIRE_SERVICE:-1}"'
 assert_contains "$ROOT/scripts/beta_acceptance.sh" 'The report contains no transcript'
 
 TMP="$(mktemp -d)"
