@@ -100,10 +100,11 @@ jobs:
           shellcheck scripts/install.sh scripts/uninstall.sh scripts/rollback.sh scripts/tests/wi08_contract_test.sh
           bash scripts/tests/wi08_contract_test.sh
 
-      - name: Verify systemd unit
+      - name: Verify systemd unit and hardening
         run: |
           sudo install -Dm755 /bin/true /usr/local/bin/xarlatan
           sudo systemd-analyze verify packaging/systemd/xarlatan.service
+          sudo systemd-analyze security --offline=yes --threshold=5 packaging/systemd/xarlatan.service
 
       - name: Upload coverage
         uses: actions/upload-artifact@v4
