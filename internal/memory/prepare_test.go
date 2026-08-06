@@ -33,6 +33,33 @@ func TestMemoryPrepareBoundsNextPrompt(t *testing.T) {
 	}
 }
 
+func TestMemoryPrepareDoesNotCompactWithinBudget(t *testing.T) {
+	summarizer := &scriptedSummarizer{outputs: []string{"unexpected"}}
+	manager := newTestManager(t, Config{MaxHistoryBytes: 700, MaxSummaryBytes: 256}, summarizer)
+	history := append(manager.History(),
+		llm.Message{Role: "user", Content: "first question"},
+		llm.Message{Role: "assistant", Content: "first answer"},
+	)
+	if _, err := manager.Update(context.Background(), history); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	before := historyText(manager.History())
+
+	snapshot, err := manager.Prepare(context.Background(), "small question")
+	if err != nil {
+		t.Fatalf("Prepare() error = %v", err)
+	}
+	if summarizer.calls != 0 {
+		t.Fatalf("summarizer calls = %d, want 0", summarizer.calls)
+	}
+	if got := historyText(snapshot.History); got != before {
+		t.Fatalf("history changed within budget: %q != %q", got, before)
+	}
+	if snapshot.Trace.DroppedTurns != 0 {
+		t.Fatalf("DroppedTurns = %d, want 0", snapshot.Trace.DroppedTurns)
+	}
+}
+
 func TestMemoryPrepareRejectsInputLargerThanBudget(t *testing.T) {
 	manager := newTestManager(t, Config{MaxHistoryBytes: 180, MaxSummaryBytes: 32}, nil)
 	before := historyText(manager.History())
