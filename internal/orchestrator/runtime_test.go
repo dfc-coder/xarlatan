@@ -21,11 +21,11 @@ type modelStep struct {
 }
 
 type scriptedModel struct {
-	mu       sync.Mutex
-	steps    []modelStep
-	calls    int
-	inputs   []string
-	history  [][]llm.Message
+	mu      sync.Mutex
+	steps   []modelStep
+	calls   int
+	inputs  []string
+	history [][]llm.Message
 }
 
 func (m *scriptedModel) Generate(
@@ -70,7 +70,7 @@ type recordingTool struct {
 	block   bool
 }
 
-func (t *recordingTool) Name() string { return t.name }
+func (t *recordingTool) Name() string        { return t.name }
 func (t *recordingTool) Description() string { return "test tool" }
 func (t *recordingTool) Schema() tools.ParameterSchema {
 	return tools.NewSchema(nil, map[string]tools.Property{})
