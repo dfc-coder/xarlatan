@@ -8,6 +8,8 @@ func TestFilterTranscriptRejectsNonVerbalMarkers(t *testing.T) {
 		"[Music]",
 		"(Sombre)",
 		" ( ruido ) ",
+		"[]",
+		"()",
 	} {
 		if got := filterTranscript(input); got != "" {
 			t.Errorf("filterTranscript(%q) = %q, want empty", input, got)
