@@ -40,6 +40,8 @@ tools:
     enabled: false            # opt-in
     root: ""                  # absolute existing directory when enabled
     allow_mutations: false    # fs_write/fs_delete/fs_mkdir require explicit opt-in
+    max_read_bytes: 1048576   # reject larger files before reading
+    max_write_bytes: 1048576  # reject payload/result larger than this limit
   web_search:
     provider: "duckduckgo"   # duckduckgo | brave | searxng
     api_key: ""

@@ -203,21 +203,27 @@ func toLLMMessages(messages []tools.ToolMessage) []llm.Message {
 func buildRegistry(cfg *config.Config) (*tools.Registry, error) {
 	policy := tools.DefaultToolPolicy()
 	fsCfg := cfg.Tools.Filesystem
+	var sandbox *tools.FilesystemSandbox
 	if fsCfg.Enabled {
 		policy = policy.WithAllowed("fs_read", "fs_list", "fs_stat")
 		if fsCfg.AllowMutations {
 			policy = policy.WithAllowed("fs_write", "fs_delete", "fs_mkdir")
 		}
+		var err error
+		sandbox, err = tools.NewFilesystemSandbox(fsCfg.Root, fsCfg.MaxReadBytes, fsCfg.MaxWriteBytes)
+		if err != nil {
+			return nil, fmt.Errorf("constructing filesystem sandbox: %w", err)
+		}
 	}
 
-	r := tools.NewRegistry(policy)
+	registry := tools.NewRegistry(policy)
 	candidates := []tools.Tool{
-		tools.FSRead{RootDir: fsCfg.Root},
-		tools.FSWrite{RootDir: fsCfg.Root},
-		tools.FSList{RootDir: fsCfg.Root},
-		tools.FSDelete{RootDir: fsCfg.Root},
-		tools.FSStat{RootDir: fsCfg.Root},
-		tools.FSMkdir{RootDir: fsCfg.Root},
+		tools.FSRead{Sandbox: sandbox},
+		tools.FSWrite{Sandbox: sandbox},
+		tools.FSList{Sandbox: sandbox},
+		tools.FSDelete{Sandbox: sandbox},
+		tools.FSStat{Sandbox: sandbox},
+		tools.FSMkdir{Sandbox: sandbox},
 		&tools.WebSearch{
 			Provider: cfg.Tools.WebSearch.Provider,
 			APIKey:   cfg.Tools.WebSearch.APIKey,
@@ -226,11 +232,11 @@ func buildRegistry(cfg *config.Config) (*tools.Registry, error) {
 		tools.WebFetch{},
 	}
 	for _, candidate := range candidates {
-		if err := r.Register(candidate); err != nil && !tools.IsToolDenied(err) {
+		if err := registry.Register(candidate); err != nil && !tools.IsToolDenied(err) {
 			return nil, fmt.Errorf("registering tool %q: %w", candidate.Name(), err)
 		}
 	}
-	return r, nil
+	return registry, nil
 }
 
 func setupLogger(level string) {

@@ -14,6 +14,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const defaultFilesystemLimitBytes int64 = 1 << 20
+
 // Config is the validated runtime configuration.
 type Config struct {
 	Audio AudioConfig `yaml:"audio"`
@@ -30,12 +32,14 @@ type ToolsConfig struct {
 	WebSearch  WebSearchConfig  `yaml:"web_search"`
 }
 
-// FilesystemConfig controls filesystem tool exposure.
+// FilesystemConfig controls filesystem tool exposure and hard payload limits.
 // Mutations are disabled unless AllowMutations is explicitly true.
 type FilesystemConfig struct {
 	Enabled        bool   `yaml:"enabled"`
 	Root           string `yaml:"root"`
 	AllowMutations bool   `yaml:"allow_mutations"`
+	MaxReadBytes   int64  `yaml:"max_read_bytes"`
+	MaxWriteBytes  int64  `yaml:"max_write_bytes"`
 }
 
 // WebSearchConfig selects the search backend (provider: duckduckgo|brave|searxng).
@@ -144,6 +148,12 @@ func Load(path string) (*Config, error) {
 func (c *Config) applyDefaults(document *yaml.Node) {
 	if c.Tools.WebSearch.Provider == "" {
 		c.Tools.WebSearch.Provider = "duckduckgo"
+	}
+	if !hasYAMLPath(document, "tools", "filesystem", "max_read_bytes") {
+		c.Tools.Filesystem.MaxReadBytes = defaultFilesystemLimitBytes
+	}
+	if !hasYAMLPath(document, "tools", "filesystem", "max_write_bytes") {
+		c.Tools.Filesystem.MaxWriteBytes = defaultFilesystemLimitBytes
 	}
 	if c.STT.Language == "" {
 		c.STT.Language = "auto"
@@ -329,13 +339,23 @@ func validateFilesystem(cfg FilesystemConfig) error {
 		}
 		return nil
 	}
+	if cfg.MaxReadBytes <= 0 {
+		return fmt.Errorf("tools.filesystem.max_read_bytes must be greater than zero")
+	}
+	if cfg.MaxWriteBytes <= 0 {
+		return fmt.Errorf("tools.filesystem.max_write_bytes must be greater than zero")
+	}
 	if strings.TrimSpace(cfg.Root) == "" {
 		return fmt.Errorf("tools.filesystem.root is required when filesystem tools are enabled")
 	}
 	if !filepath.IsAbs(cfg.Root) {
 		return fmt.Errorf("tools.filesystem.root must be an absolute path")
 	}
-	root := filepath.Clean(cfg.Root)
+	root, err := filepath.EvalSymlinks(filepath.Clean(cfg.Root))
+	if err != nil {
+		return fmt.Errorf("tools.filesystem.root %q: %w", cfg.Root, err)
+	}
+	root = filepath.Clean(root)
 	if root == filepath.VolumeName(root)+string(os.PathSeparator) {
 		return fmt.Errorf("tools.filesystem.root must not be the filesystem root")
 	}
