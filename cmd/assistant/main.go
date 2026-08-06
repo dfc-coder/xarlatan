@@ -15,17 +15,19 @@ import (
 	"github.com/dfc-coder/xarlatan/internal/console"
 	"github.com/dfc-coder/xarlatan/internal/llm"
 	"github.com/dfc-coder/xarlatan/internal/memory"
+	"github.com/dfc-coder/xarlatan/internal/orchestrator"
 	"github.com/dfc-coder/xarlatan/internal/stt"
 	"github.com/dfc-coder/xarlatan/internal/tools"
 	"github.com/dfc-coder/xarlatan/internal/tts"
 )
 
 var (
-	cfgPath  = flag.String("config", "config.yaml", "path to config.yaml")
-	logLevel = flag.String("log", "info", "log level: debug|info|warn|error")
-	noTools  = flag.Bool("no-tools", false, "disable all tools")
-	reset    = flag.Bool("reset", false, "reset conversation history on startup")
-	version  = flag.Bool("version", false, "print version and exit")
+	cfgPath       = flag.String("config", "config.yaml", "path to config.yaml")
+	logLevel      = flag.String("log", "info", "log level: debug|info|warn|error")
+	noTools       = flag.Bool("no-tools", false, "disable all tools")
+	reset         = flag.Bool("reset", false, "reset conversation history on startup")
+	maxToolRounds = flag.Int("max-tool-rounds", 4, "maximum tool rounds per user turn")
+	version       = flag.Bool("version", false, "print version and exit")
 )
 
 const buildVersion = "0.2.0"
@@ -37,6 +39,10 @@ func main() {
 		os.Exit(0)
 	}
 	setupLogger(*logLevel)
+	if *maxToolRounds <= 0 {
+		slog.Error("agent config", "err", "max-tool-rounds must be greater than zero")
+		os.Exit(1)
+	}
 
 	cfg, err := config.Load(*cfgPath)
 	if err != nil {
@@ -81,6 +87,18 @@ func main() {
 		slog.Info("tools enabled", "list", registry.Names())
 	}
 
+	agent, err := orchestrator.NewAgentRuntime(
+		orchestrator.RuntimeConfig{MaxToolRounds: *maxToolRounds},
+		llmClient,
+		registry,
+		executor,
+		orchestrator.SlogObserver{},
+	)
+	if err != nil {
+		slog.Error("agent runtime", "err", err)
+		os.Exit(1)
+	}
+
 	recorder := audio.NewRecorder(cfg.Audio)
 	speaker, err := tts.New(cfg.TTS, cfg.Audio.Device)
 	if err != nil {
@@ -122,81 +140,48 @@ func main() {
 
 		status.Set("Pensando")
 		t0 = time.Now()
-		reply, toolLog, nextHistory, err := llmClient.Generate(ctx, history, text, registry)
+		turn, err := agent.Run(ctx, orchestrator.Request{Input: text, History: history})
 		if err != nil {
 			if ctx.Err() != nil {
 				return
 			}
-			slog.Warn("llm", "err", err)
+			slog.Warn("agent", "err", err)
 			status.Set("Escuchando")
 			continue
 		}
-		if toolLog != "" {
-			fmt.Printf("   %s\n", toolLog)
-		}
-		if executor != nil && hasToolCalls(nextHistory) {
-			calls := nextHistory[len(nextHistory)-1].ToolCalls
-			toolMsgs, execLog := executor.RunAll(ctx, calls)
-			if execLog != "" {
-				fmt.Printf("   %s\n", execLog)
-			}
-			nextHistory = append(nextHistory, toLLMMessages(toolMsgs)...)
-			reply, toolLog, nextHistory, err = llmClient.Generate(ctx, nextHistory, "", registry)
-			if err != nil {
-				if ctx.Err() != nil {
-					return
-				}
-				slog.Warn("llm", "err", err)
-				status.Set("Escuchando")
-				continue
-			}
-			if toolLog != "" {
-				fmt.Printf("   %s\n", toolLog)
-			}
-		}
+		printAgentTrace(turn.Trace)
 
-		snap := memory.Compact(nextHistory, 20)
+		snap := memory.Compact(turn.History, 20)
 		slog.Debug(
 			"memory compact",
-			"input_messages",
-			snap.Trace.InputMessages,
-			"dropped_messages",
-			snap.Trace.DroppedMessages,
-			"window_messages",
-			snap.Trace.WindowMessages,
-			"summary_generated",
-			snap.Trace.SummaryGenerated,
+			"input_messages", snap.Trace.InputMessages,
+			"dropped_messages", snap.Trace.DroppedMessages,
+			"window_messages", snap.Trace.WindowMessages,
+			"summary_generated", snap.Trace.SummaryGenerated,
 		)
 		summary = memory.MergeSummary(summary, snap.Summary)
 		history = memory.Compose(cfg.LLM.SystemPrompt, summary, snap.Window)
-		slog.Debug("llm", "ms", time.Since(t0).Milliseconds())
-		fmt.Printf("🤖  %s\n", reply)
+		slog.Debug("agent", "ms", time.Since(t0).Milliseconds(), "rounds", len(turn.Trace.Rounds))
+		fmt.Printf("🤖  %s\n", turn.Reply)
 
 		status.Set("Hablando")
-		if err := speaker.Speak(ctx, reply); err != nil {
+		if err := speaker.Speak(ctx, turn.Reply); err != nil {
 			slog.Warn("tts", "err", err)
 		}
 		status.Set("Escuchando")
 	}
 }
 
-func hasToolCalls(history []llm.Message) bool {
-	if len(history) == 0 {
-		return false
-	}
-	return len(history[len(history)-1].ToolCalls) > 0
-}
-
-func toLLMMessages(messages []tools.ToolMessage) []llm.Message {
-	converted := make([]llm.Message, len(messages))
-	for i, msg := range messages {
-		converted[i] = llm.Message{
-			Role:       msg.Role,
-			ToolCallID: msg.ToolCallID,
-			Content:    msg.Content,
+func printAgentTrace(trace orchestrator.Trace) {
+	for _, round := range trace.Rounds {
+		for _, tool := range round.Tools {
+			prefix := "✓"
+			if !tool.Success {
+				prefix = "✗"
+			}
+			fmt.Printf("   %s %s\n", prefix, tool.Tool)
 		}
 	}
-	return converted
 }
 
 // buildRegistry registers candidate tools through a configuration-derived policy.
