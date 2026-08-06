@@ -28,10 +28,21 @@ func (m *Manager) Prepare(ctx context.Context, userText string) (Snapshot, error
 
 	previousSummary := m.summary
 	kept := cloneTurns(m.turns)
-	inputPrompt := append(m.buildHistory(previousSummary, kept), prospective)
+	inputHistory := m.buildHistory(previousSummary, kept)
+	inputPrompt := append(cloneMessages(inputHistory), prospective)
 	inputBytes, err := Measure(inputPrompt)
 	if err != nil {
 		return Snapshot{}, &MemoryError{Code: ErrorInvalidHistory, Err: fmt.Errorf("measure prospective prompt: %w", err)}
+	}
+	if inputBytes <= m.config.MaxHistoryBytes {
+		trace := Trace{
+			InputMessages:  len(inputPrompt),
+			InputBytes:     inputBytes,
+			OutputMessages: len(inputPrompt),
+			OutputBytes:    inputBytes,
+			SummaryBytes:   len([]byte(previousSummary)),
+		}
+		return Snapshot{History: cloneMessages(inputHistory), Summary: previousSummary, Trace: trace}, nil
 	}
 
 	var dropped [][]llm.Message
