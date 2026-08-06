@@ -10,14 +10,14 @@
 
 ## Problema
 
-La implementación actual de `internal/memory` no mantiene un presupuesto real de prompt:
+La implementación anterior de `internal/memory` no mantenía un presupuesto real de prompt:
 
-1. recorta por cantidad fija de pares, sin considerar tamaño;
-2. resume mediante concatenación literal de mensajes descartados;
-3. concatena cada resumen nuevo al anterior, por lo que el estado vuelve a crecer sin límite;
-4. inserta el resumen derivado de conversación como un segundo mensaje `system`;
-5. corta por posiciones, por lo que no modela explícitamente turnos con llamadas y resultados de tools;
-6. no puede demostrar que una conversación prolongada conserve un tamaño estable.
+1. recortaba por cantidad fija de pares, sin considerar tamaño;
+2. resumía mediante concatenación literal de mensajes descartados;
+3. concatenaba cada resumen nuevo al anterior, por lo que el estado volvía a crecer sin límite;
+4. insertaba el resumen derivado de conversación como un segundo mensaje `system`;
+5. cortaba por posiciones, sin modelar explícitamente turnos con llamadas y resultados de tools;
+6. no podía demostrar que una conversación prolongada conservara un tamaño estable.
 
 ## Objetivo
 
@@ -28,7 +28,7 @@ Reemplazar la compactación posicional por un componente de memoria que construy
 ### Incluido
 
 - presupuesto determinista medido en bytes del JSON de mensajes;
-- configuración estricta de `max_history_bytes` y `max_summary_bytes`;
+- límites operativos explícitos mediante `-max-history-bytes` y `-max-summary-bytes`;
 - `Manager` propietario del summary y de la ventana reciente;
 - agrupación y eviction por turnos completos iniciados por `user`;
 - preservación atómica de exchanges `assistant.tool_calls` + mensajes `tool`;
@@ -48,7 +48,8 @@ Reemplazar la compactación posicional por un componente de memoria que construy
 - otra llamada LLM para resumir;
 - tokenización específica de cada modelo;
 - modificación del loop de tools del `AgentRuntime`;
-- streaming o pipeline de voz.
+- streaming o pipeline de voz;
+- migración de los límites a YAML; los flags mantienen el cambio aislado del schema estricto hasta WI-08.
 
 ## Modelo
 
@@ -78,7 +79,7 @@ La memoria conserva o elimina el turno completo. Nunca corta entre una llamada y
 
 ## Contratos
 
-### Config
+### Configuración del manager
 
 ```go
 type Config struct {
@@ -89,7 +90,15 @@ type Config struct {
 
 - ambos valores deben ser mayores que cero;
 - `MaxSummaryBytes` debe ser menor que `MaxHistoryBytes`;
-- el system prompt por sí solo debe caber dentro del budget.
+- el system prompt por sí solo debe caber dentro del budget;
+- `cmd/assistant` entrega los valores desde flags validados antes de construir dependencias runtime.
+
+Defaults operativos:
+
+```text
+-max-history-bytes=12288
+-max-summary-bytes=2048
+```
 
 ### Summarizer
 
@@ -182,8 +191,8 @@ Los errores incluyen causa sin registrar contenido completo de conversación.
 - `TestMemoryRejectsInvalidToolExchange`
 - `TestMemoryReturnsDefensiveCopies`
 - `TestMemoryHonorsCancellation`
-- config defaults y validación estricta;
-- composition root usa `memory.Manager` y elimina `MergeSummary`.
+- validación de configuración del manager y flags en composition root;
+- composition root usa `memory.Manager` y elimina `Compact`, `Compose` y `MergeSummary`.
 
 ## Criterios de aceptación
 
@@ -194,14 +203,15 @@ Los errores incluyen causa sin registrar contenido completo de conversación.
 - no existe concatenación indefinida de summaries;
 - suite focalizada, repetición, race, suite completa y build verdes;
 - `internal/memory` alcanza al menos 80 % de cobertura de statements;
-- configuración y trazabilidad actualizadas.
+- operación y trazabilidad actualizadas.
 
 ## Rollback
 
-Revertir el PR restaura `Compact`, `Compose` y `MergeSummary`. El cambio de YAML agrega un bloque opcional con defaults; al revertir, ese bloque debe eliminarse porque el loader estricto lo rechazaría.
+Revertir el PR restaura `Compact`, `Compose` y `MergeSummary`, y elimina los flags `-max-history-bytes` y `-max-summary-bytes`. No existe migración de YAML asociada.
 
 ## Trade-offs
 
 - El budget se expresa en bytes JSON, no tokens exactos. Es determinista, independiente del modelo y conservador, pero no representa exactamente el tokenizer del GGUF.
 - La implementación extractiva puede perder matices. El objetivo de WI-06 es acotación y seguridad; un summarizer semántico puede agregarse detrás de la interfaz sin cambiar el manager.
 - Un turno individual mayor que el budget no se fragmenta: se descarta completo y, cuando es posible, se representa mediante summary acotado.
+- Los límites se exponen por flags para mantener WI-06 aislado del schema YAML estricto; WI-08 puede moverlos a configuración instalada sin alterar `memory.Manager`.
