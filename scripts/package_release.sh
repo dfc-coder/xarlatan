@@ -32,9 +32,11 @@ install -m644 "$ROOT/docs/BETA_RUNBOOK.md" "$STAGE/$NAME/BETA_RUNBOOK.md"
 install -m644 "$ROOT/CHANGELOG.md" "$STAGE/$NAME/CHANGELOG.md"
 install -m644 "$ROOT/LICENSE" "$STAGE/$NAME/LICENSE"
 
+SUMS_TMP="$STAGE/internal-SHA256SUMS"
 (
   cd "$STAGE/$NAME"
-  find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
+  find . -type f -print0 | sort -z | xargs -0 sha256sum > "$SUMS_TMP"
+  mv "$SUMS_TMP" SHA256SUMS
 )
 
 mkdir -p "$DIST"
