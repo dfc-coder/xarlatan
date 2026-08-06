@@ -91,14 +91,15 @@ jobs:
 
       - name: Build and verify version
         run: |
-          make clean build VERSION=0.4.0-ci
+          make clean build VERSION=v0.4.0-ci
           test "$(./bin/assistant -version)" = "assistant v0.4.0-ci"
           test -x ./bin/calibrate
 
-      - name: Verify WI-08 shell contracts
+      - name: Verify shell and release contracts
         run: |
-          shellcheck scripts/install.sh scripts/uninstall.sh scripts/rollback.sh scripts/tests/wi08_contract_test.sh
+          shellcheck scripts/*.sh scripts/tests/*.sh
           bash scripts/tests/wi08_contract_test.sh
+          bash scripts/tests/wi09_contract_test.sh
 
       - name: Verify systemd unit and hardening
         run: |
