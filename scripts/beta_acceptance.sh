@@ -3,7 +3,7 @@ set -euo pipefail
 
 EXPECTED_VERSION="${EXPECTED_VERSION:-v0.4.0-beta.1}"
 CONFIG="${1:-${XARLATAN_CONFIG:-}}"
-AUDIO_DEVICE="${AUDIO_DEVICE:-default}"
+AUDIO_DEVICE="${AUDIO_DEVICE:-}"
 VOICE_WINDOW_SECONDS="${VOICE_WINDOW_SECONDS:-45}"
 NON_INTERACTIVE="${NON_INTERACTIVE:-0}"
 REQUIRE_SERVICE="${REQUIRE_SERVICE:-1}"
@@ -15,6 +15,34 @@ trap 'rm -rf "$TMP"' EXIT
 if [[ -z "$CONFIG" ]]; then
   [[ -f /etc/xarlatan/config.yaml ]] && CONFIG=/etc/xarlatan/config.yaml || CONFIG="$ROOT/config.yaml"
 fi
+
+config_audio_device() {
+  awk '
+    /^audio:[[:space:]]*$/ { inside=1; next }
+    inside && /^[^[:space:]#]/ { exit }
+    inside && /^[[:space:]]+device:[[:space:]]*/ {
+      line=$0
+      sub(/^[[:space:]]+device:[[:space:]]*/, "", line)
+      sub(/[[:space:]]+#.*/, "", line)
+      gsub(/^"|"$/, "", line)
+      gsub(/^\047|\047$/, "", line)
+      print line
+      exit
+    }
+  ' "$CONFIG"
+}
+
+CONFIG_AUDIO_DEVICE="$(config_audio_device)"
+CONFIG_AUDIO_DEVICE="${CONFIG_AUDIO_DEVICE:-default}"
+if [[ -z "$AUDIO_DEVICE" ]]; then
+  AUDIO_DEVICE="$CONFIG_AUDIO_DEVICE"
+elif [[ "$AUDIO_DEVICE" != "$CONFIG_AUDIO_DEVICE" ]]; then
+  printf 'ERROR: AUDIO_DEVICE=%s differs from audio.device=%s in %s\n' \
+    "$AUDIO_DEVICE" "$CONFIG_AUDIO_DEVICE" "$CONFIG" >&2
+  printf 'Update the config first so manual capture and Xarlatan test the same device.\n' >&2
+  exit 2
+fi
+
 if [[ -x /usr/local/bin/xarlatan ]]; then
   XARLATAN_BIN="${XARLATAN_BIN:-/usr/local/bin/xarlatan}"
   LLAMA_SERVER_BIN="${LLAMA_SERVER_BIN:-/usr/local/bin/llama-server}"
@@ -47,7 +75,7 @@ else
   mark_fail
 fi
 
-printf '\nRecording four seconds from ALSA device %s. Speak clearly.\n' "$AUDIO_DEVICE"
+printf '\nRecording four seconds from configured ALSA device %s. Speak clearly.\n' "$AUDIO_DEVICE"
 if arecord -D "$AUDIO_DEVICE" -f S16_LE -r 16000 -c 1 -d 4 "$TMP/capture.wav"; then
   AUDIO_CAPTURE=PASS
 else
