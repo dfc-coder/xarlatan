@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	chunkDurationMS  = 80
+	chunkDurationMS   = 80
 	preRollChunkCount = 2
 	pcmBytesPerSample = 2
 )
