@@ -24,7 +24,7 @@ El primer estado RED reprodujo cuatro vulnerabilidades existentes:
 - `TestDeleteRejectsSandboxRoot`: `path: "."` podía eliminar la raíz;
 - `TestDeleteRejectsEmptyPath`: `path: ""` podía eliminar la raíz.
 
-La matriz se amplió antes del GREEN para cubrir traversal, todas las tools, límites, atomicidad y policy.
+La matriz se amplió antes del GREEN para cubrir traversal, paths absolutos, todas las tools, symlinks internos válidos, límites, atomicidad y policy.
 
 ## BUILD — GREEN
 
@@ -35,6 +35,7 @@ La matriz se amplió antes del GREEN para cubrir traversal, todas las tools, lí
 - `EvalSymlinks` verifica containment efectivo para destinos existentes.
 - Los destinos nuevos resuelven el parent existente más cercano.
 - Mutaciones rechazan vacío, `.`, raíz y symlinks finales.
+- Symlinks que resuelven dentro del sandbox permanecen disponibles para operaciones de lectura.
 - Los errores de boundary y policy tienen códigos identificables.
 
 ### Operaciones
@@ -65,19 +66,21 @@ Ambos valores tienen default de 1 MiB y deben ser positivos cuando filesystem es
 
 ## VERIFY
 
-Head verificado: `72fc2714352ccaa5ddf7115d90185ab682d0ea74`.
+Head funcional verificado: `bfb74b806c3f710b1a848b61b89d44468bf12848`.
 
 - `baseline inventory`: success;
 - `gofmt -l .`: success;
 - `go vet ./...`: success;
 - `go test -count=1 -coverprofile=coverage.out ./...`: success;
 - `go build ./cmd/assistant ./cmd/calibrate`: success;
-- artefacto `coverage`: publicado, digest `sha256:51bf3720f6ec4394a0e880fdbde2efefcac71efc96ad3c4cff04450b0be4cd1d`.
+- artefacto `coverage`: publicado, digest `sha256:5dc9ed9be827df2e820029c2bf441069758446e7767c92ec4a079de376c65fdf`.
 
 ## Matriz de regresión
 
 - traversal mediante `..`;
+- path absoluto externo;
 - symlink de archivo externo;
+- symlink interno que permanece dentro del root;
 - parent symlink para destino nuevo;
 - read/stat/list/write/mkdir/delete mediante escape;
 - mutación de raíz mediante vacío o `.`;
