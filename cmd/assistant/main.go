@@ -158,10 +158,14 @@ func main() {
 		snap := memory.Compact(nextHistory, 20)
 		slog.Debug(
 			"memory compact",
-			"input_messages", snap.Trace.InputMessages,
-			"dropped_messages", snap.Trace.DroppedMessages,
-			"window_messages", snap.Trace.WindowMessages,
-			"summary_generated", snap.Trace.SummaryGenerated,
+			"input_messages",
+			snap.Trace.InputMessages,
+			"dropped_messages",
+			snap.Trace.DroppedMessages,
+			"window_messages",
+			snap.Trace.WindowMessages,
+			"summary_generated",
+			snap.Trace.SummaryGenerated,
 		)
 		summary = memory.MergeSummary(summary, snap.Summary)
 		history = memory.Compose(cfg.LLM.SystemPrompt, summary, snap.Window)
@@ -216,8 +220,8 @@ func buildRegistry(cfg *config.Config) (*tools.Registry, error) {
 		tools.FSMkdir{RootDir: fsCfg.Root},
 		&tools.WebSearch{
 			Provider: cfg.Tools.WebSearch.Provider,
-			APIKey:  cfg.Tools.WebSearch.APIKey,
-			BaseURL: cfg.Tools.WebSearch.BaseURL,
+			APIKey:   cfg.Tools.WebSearch.APIKey,
+			BaseURL:  cfg.Tools.WebSearch.BaseURL,
 		},
 		tools.WebFetch{},
 	}
