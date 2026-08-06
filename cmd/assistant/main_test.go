@@ -108,6 +108,7 @@ func TestApplicationUsesBoundedMemoryOnly(t *testing.T) {
 		"memory.New(",
 		"memory.ExtractiveSummarizer{}",
 		"memoryManager.History()",
+		"memoryManager.Prepare(ctx, text)",
 		"memoryManager.Update(ctx, turn.History)",
 		"max-history-bytes",
 		"max-summary-bytes",
