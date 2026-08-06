@@ -57,7 +57,7 @@ func TestGenerate_UsesSingleLLMCallPerTurn(t *testing.T) {
 	}
 	port := mustPort(t, parsed)
 
-	r := tools.NewRegistry()
+	r := tools.NewRegistry(tools.AllowAllToolPolicy())
 	r.Register(noopTool{})
 
 	c := &Client{
