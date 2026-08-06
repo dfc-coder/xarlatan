@@ -55,9 +55,7 @@ $(BIN_DIR)/calibrate:
 	@go build $(GOFLAGS) -ldflags="-s -w" -o $(BIN_DIR)/calibrate ./cmd/calibrate
 	@echo "✓ calibrate built → bin/calibrate"
 
-models: models/stt models/tts models/llm ## Download default runtime models
-
-models/stt models/tts models/llm:
+models: ## Download and validate default runtime models
 	@bash scripts/download_models.sh
 
 install: all ## Install binaries, config and service; does not enable service
