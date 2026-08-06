@@ -36,7 +36,11 @@ jobs:
           test -f internal/conversation/session_test.go
           test -f internal/application/application_test.go
           test -f internal/application/additional_test.go
+          test -f internal/application/context_error_test.go
+          test -f internal/application/stage_contract_test.go
+          test -f internal/application/state_test.go
           test -f cmd/assistant/main_test.go
+          test -f cmd/assistant/shutdown_test.go
           ! grep -R --include='*.go' -n "github.com/local/assistant" cmd internal
           ! grep -n "github.com/local/assistant" go.mod go.sum
           test -f LICENSE
