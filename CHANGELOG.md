@@ -12,7 +12,9 @@ Primera beta candidata después del refactor operativo WI-00..WI-09.
 - servicio systemd no root, sin capabilities, con filesystem de solo lectura salvo `/var/lib/xarlatan`;
 - dispositivo del servicio limitado a ALSA;
 - herramientas deshabilitadas en el servicio beta mediante `--no-tools`;
-- el LLM beta se descarga a un archivo temporal y se valida mediante SHA-256 antes de instalarlo.
+- el LLM beta se descarga a un archivo temporal y se valida mediante SHA-256 antes de instalarlo;
+- configuración instalada `0640` bajo `root:xarlatan`;
+- modelos instalados `0640` y directorios `0750` bajo `xarlatan:xarlatan`.
 
 ### Arquitectura
 
@@ -26,6 +28,8 @@ Primera beta candidata después del refactor operativo WI-00..WI-09.
 
 - build versionable;
 - `make all` construye `assistant`, `calibrate` y `llama-server`;
+- `make build` fuerza la reconstrucción de los binarios Go;
+- versiones con o sin prefijo `v` producen una única salida `assistant v<versión>`;
 - instalación idempotente;
 - configuración instalada en `/etc/xarlatan`;
 - datos/modelos en `/var/lib/xarlatan`;
@@ -35,12 +39,15 @@ Primera beta candidata después del refactor operativo WI-00..WI-09.
 - preflight y aceptación física con reporte;
 - `make models` ejecuta un único ciclo de descarga y validación.
 
-### Hotfix de primera ejecución
+### Hotfixes de primera ejecución
 
 - se reemplazó el repositorio restringido `google/gemma-3-270m-it-GGUF`, que devolvía HTTP 401, por el repositorio público `Qwen/Qwen2.5-0.5B-Instruct-GGUF`;
 - el modelo por defecto es `qwen2.5-0.5b-instruct-q4_k_m.gguf`;
 - los archivos vacíos, parciales o con checksum incorrecto se rechazan;
-- el runbook ejecuta los scripts con `bash` para no depender del bit ejecutable del checkout.
+- el runbook ejecuta los scripts con `bash` para no depender del bit ejecutable del checkout;
+- se corrigió `assistant vv0.4.0-beta.1` normalizando la versión antes de inyectarla;
+- la aceptación foreground usa `./config.yaml`, mientras systemd valida la configuración instalada restringida;
+- la instalación normaliza permisos para que el usuario `xarlatan` pueda leer todos los modelos.
 
 ### Cambios incompatibles
 

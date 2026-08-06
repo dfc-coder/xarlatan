@@ -11,12 +11,13 @@ NPROC := $(shell nproc)
 CMAKE_COMMON := -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF
 GOFLAGS ?= -mod=mod
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+BUILD_VERSION := $(patsubst v%,%,$(VERSION))
 
 ifdef GGML_CUDA
   CMAKE_LLAMA_EXTRA := -DGGML_CUDA=ON
 endif
 
-.PHONY: all build deps llama models install uninstall rollback release-candidate preflight beta-acceptance clean clean-all clean-llama reset-llama help
+.PHONY: all build deps llama models install uninstall rollback release-candidate preflight beta-acceptance clean clean-all clean-llama reset-llama help FORCE
 
 all: deps build ## Build llama-server and all Go commands
 
@@ -43,17 +44,19 @@ $(BIN_DIR)/llama-server:
 
 build: $(BIN_DIR)/assistant $(BIN_DIR)/calibrate ## Build all Go commands
 
-$(BIN_DIR)/assistant:
+$(BIN_DIR)/assistant: FORCE
 	@mkdir -p $(BIN_DIR)
 	@go build $(GOFLAGS) \
-		-ldflags="-s -w -X main.buildVersion=$(VERSION)" \
+		-ldflags="-s -w -X main.buildVersion=$(BUILD_VERSION)" \
 		-o $(BIN_DIR)/assistant ./cmd/assistant
-	@echo "✓ assistant $(VERSION) built → bin/assistant"
+	@echo "✓ assistant v$(BUILD_VERSION) built → bin/assistant"
 
-$(BIN_DIR)/calibrate:
+$(BIN_DIR)/calibrate: FORCE
 	@mkdir -p $(BIN_DIR)
 	@go build $(GOFLAGS) -ldflags="-s -w" -o $(BIN_DIR)/calibrate ./cmd/calibrate
 	@echo "✓ calibrate built → bin/calibrate"
+
+FORCE:
 
 models: ## Download and validate default runtime models
 	@bash scripts/download_models.sh
@@ -71,10 +74,10 @@ release-candidate: all ## Build deterministic beta archive and SHA-256
 	@bash scripts/package_release.sh "$(VERSION)"
 
 preflight: build ## Validate local beta prerequisites and models
-	@EXPECTED_VERSION="$(VERSION)" XARLATAN_BIN="$(BIN_DIR)/assistant" LLAMA_SERVER_BIN="$(BIN_DIR)/llama-server" bash scripts/preflight.sh config.yaml
+	@EXPECTED_VERSION="v$(BUILD_VERSION)" XARLATAN_BIN="$(BIN_DIR)/assistant" LLAMA_SERVER_BIN="$(BIN_DIR)/llama-server" bash scripts/preflight.sh config.yaml
 
 beta-acceptance: all ## Run interactive physical beta acceptance
-	@EXPECTED_VERSION="$(VERSION)" XARLATAN_BIN="$(BIN_DIR)/assistant" LLAMA_SERVER_BIN="$(BIN_DIR)/llama-server" bash scripts/beta_acceptance.sh config.yaml
+	@EXPECTED_VERSION="v$(BUILD_VERSION)" XARLATAN_BIN="$(BIN_DIR)/assistant" LLAMA_SERVER_BIN="$(BIN_DIR)/llama-server" bash scripts/beta_acceptance.sh config.yaml
 
 clean-llama:
 	@rm -rf $(LLAMA_DIR)/build $(BIN_DIR)/llama-server
