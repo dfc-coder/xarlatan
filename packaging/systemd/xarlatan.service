@@ -1,0 +1,46 @@
+[Unit]
+Description=Xarlatan local voice assistant
+Documentation=https://github.com/dfc-coder/xarlatan
+After=sound.target network-online.target
+Wants=network-online.target
+ConditionPathExists=/etc/xarlatan/config.yaml
+
+[Service]
+Type=simple
+User=xarlatan
+Group=xarlatan
+SupplementaryGroups=audio
+ExecStart=/usr/local/bin/xarlatan --config /etc/xarlatan/config.yaml --no-tools
+Restart=on-failure
+RestartSec=3s
+TimeoutStopSec=15s
+WorkingDirectory=/var/lib/xarlatan
+StateDirectory=xarlatan
+UMask=0077
+
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=false
+DevicePolicy=closed
+DeviceAllow=char-alsa rw
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/var/lib/xarlatan
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=xarlatan
+
+[Install]
+WantedBy=multi-user.target

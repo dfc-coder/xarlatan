@@ -26,14 +26,13 @@ var (
 	cfgPath         = flag.String("config", "config.yaml", "path to config.yaml")
 	logLevel        = flag.String("log", "info", "log level: debug|info|warn|error")
 	noTools         = flag.Bool("no-tools", false, "disable all tools")
-	reset           = flag.Bool("reset", false, "reset conversation history on startup")
 	maxToolRounds   = flag.Int("max-tool-rounds", 4, "maximum tool rounds per user turn")
 	maxHistoryBytes = flag.Int("max-history-bytes", 12_288, "maximum JSON bytes retained in conversation history")
 	maxSummaryBytes = flag.Int("max-summary-bytes", 2_048, "maximum bytes retained in the untrusted memory summary")
 	version         = flag.Bool("version", false, "print version and exit")
 )
 
-const buildVersion = "0.3.0"
+var buildVersion = "dev"
 
 func main() {
 	flag.Parse()
@@ -125,9 +124,6 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("memory: %w", err)
 	}
-	if *reset {
-		memoryManager.Reset()
-	}
 
 	var registry *tools.Registry
 	var executor *tools.Executor
@@ -195,7 +191,6 @@ func llamaServerArgs(cfg config.LLMConfig) []string {
 	}
 }
 
-// buildRegistry registers candidate tools through a configuration-derived policy.
 func buildRegistry(cfg *config.Config) (*tools.Registry, error) {
 	policy := tools.DefaultToolPolicy()
 	fsCfg := cfg.Tools.Filesystem

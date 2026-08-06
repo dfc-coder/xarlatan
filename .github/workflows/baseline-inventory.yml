@@ -6,6 +6,9 @@ on:
       - "**/*.go"
       - "go.mod"
       - "go.sum"
+      - "Makefile"
+      - "scripts/**"
+      - "packaging/**"
       - "docs/baseline/**"
       - "docs/refactor/**"
       - ".github/workflows/**"
@@ -45,6 +48,12 @@ jobs:
           test -f internal/application/state_test.go
           test -f cmd/assistant/main_test.go
           test -f cmd/assistant/shutdown_test.go
+          test -f scripts/tests/wi08_contract_test.sh
+          test -f scripts/install.sh
+          test -f scripts/uninstall.sh
+          test -f scripts/rollback.sh
+          test -f packaging/config.yaml
+          test -f packaging/systemd/xarlatan.service
           ! grep -R --include='*.go' -n "github.com/local/assistant" cmd internal
           ! grep -n "github.com/local/assistant" go.mod go.sum
           test -f LICENSE
@@ -58,4 +67,7 @@ jobs:
           test -f docs/refactor/WI-07_SPEC.md
           test -f docs/refactor/WI-07_USAGE.md
           test -f docs/refactor/WI-07_EVIDENCE.md
+          test -f docs/refactor/WI-08_SPEC.md
+          test -f docs/refactor/WI-08_USAGE.md
+          test -f docs/refactor/WI-08_EVIDENCE.md
           test -z "$(gofmt -l cmd internal)"
