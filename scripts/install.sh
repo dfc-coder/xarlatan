@@ -8,6 +8,7 @@ DESTDIR="${DESTDIR:-}"
 PREFIX="${PREFIX:-/usr/local}"
 SYSCONFDIR="${SYSCONFDIR:-/etc}"
 LOCALSTATEDIR="${LOCALSTATEDIR:-/var/lib}"
+BACKUPDIR="${BACKUPDIR:-/var/backups/xarlatan}"
 SYSTEMD_DIR="${SYSTEMD_DIR:-/etc/systemd/system}"
 XARLATAN_USER="${XARLATAN_USER:-xarlatan}"
 XARLATAN_GROUP="${XARLATAN_GROUP:-xarlatan}"
@@ -19,7 +20,7 @@ BIN_DIR="$(path_in_root "$PREFIX/bin")"
 CONFIG_DIR="$(path_in_root "$SYSCONFDIR/xarlatan")"
 DATA_DIR="$(path_in_root "$LOCALSTATEDIR/xarlatan")"
 SERVICE_FILE="$(path_in_root "$SYSTEMD_DIR/xarlatan.service")"
-ROLLBACK_DIR="$DATA_DIR/rollback"
+ROLLBACK_DIR="$(path_in_root "$BACKUPDIR")"
 MANIFEST="$ROLLBACK_DIR/manifest"
 
 log() { printf '%s\n' "$*"; }
@@ -66,6 +67,7 @@ backup_one() {
 prepare_rollback() {
   rm -rf "$ROLLBACK_DIR"
   mkdir -p "$ROLLBACK_DIR/files"
+  chmod 0700 "$ROLLBACK_DIR"
   : > "$MANIFEST"
   backup_one "$PREFIX/bin/xarlatan"
   backup_one "$PREFIX/bin/xarlatan-calibrate"
@@ -94,11 +96,13 @@ set_permissions() {
   chmod 0640 "$CONFIG_DIR/config.yaml"
   chown -R "$XARLATAN_USER":"$XARLATAN_GROUP" "$DATA_DIR"
   chmod 0750 "$DATA_DIR" "$DATA_DIR/models"
+  chown -R root:root "$ROLLBACK_DIR"
+  chmod 0700 "$ROLLBACK_DIR"
 }
 
 reload_systemd() {
   [[ "$SKIP_SYSTEMD" == "1" || -n "$DESTDIR" ]] && return 0
-  if command -v systemctl >/dev/null; then
+  if command -v systemctl >/dev/null 2>&1; then
     systemctl daemon-reload
   fi
 }
