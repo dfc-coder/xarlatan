@@ -91,9 +91,9 @@ func (e *Executor) RunAllDetailed(ctx context.Context, calls []ToolCall) []Execu
 	return records
 }
 
-func (e *Executor) runDetailed(ctx context.Context, call ToolCall) ExecutionRecord {
+func (e *Executor) runDetailed(ctx context.Context, call ToolCall) (record ExecutionRecord) {
 	started := time.Now()
-	record := ExecutionRecord{Call: call}
+	record.Call = call
 	defer func() { record.Duration = time.Since(started) }()
 
 	if e == nil || e.registry == nil {
