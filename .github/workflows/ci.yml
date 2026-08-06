@@ -76,8 +76,8 @@ jobs:
           enforce memory memory-coverage.out 80
           enforce application application-coverage.out 80
           enforce conversation conversation-coverage.out 80
-          enforce audio audio-coverage.out 51
-          enforce vad vad-coverage.out 90
+          enforce audio audio-coverage.out 51.1
+          enforce vad vad-coverage.out 90.1
 
       - name: Repeat agent, tool, LLM, memory, audio, conversation, and application tests
         run: go test -count=20 ./internal/orchestrator ./internal/tools ./internal/llm ./internal/memory ./internal/audio ./internal/conversation ./internal/application
