@@ -16,7 +16,8 @@ func filterTranscript(text string) string {
 }
 
 func isNonVerbalMarker(text string) bool {
-	if utf8.RuneCountInString(text) < 2 || utf8.RuneCountInString(text) > maxNonVerbalMarkerRunes {
+	runeCount := utf8.RuneCountInString(text)
+	if runeCount < 2 || runeCount > maxNonVerbalMarkerRunes {
 		return false
 	}
 	runes := []rune(text)
@@ -29,8 +30,5 @@ func isNonVerbalMarker(text string) bool {
 	default:
 		return false
 	}
-	if runes[len(runes)-1] != closing {
-		return false
-	}
-	return strings.TrimSpace(string(runes[1:len(runes)-1])) != ""
+	return runes[len(runes)-1] == closing
 }
