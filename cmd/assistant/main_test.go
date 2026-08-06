@@ -102,6 +102,31 @@ func TestApplicationOwnsLLMServerLifecycle(t *testing.T) {
 	}
 }
 
+func TestApplicationUsesBoundedMemoryOnly(t *testing.T) {
+	source := readMainSource(t)
+	for _, required := range []string{
+		"memory.New(",
+		"memory.ExtractiveSummarizer{}",
+		"memoryManager.History()",
+		"memoryManager.Update(ctx, turn.History)",
+		"max-history-bytes",
+		"max-summary-bytes",
+	} {
+		if !strings.Contains(source, required) {
+			t.Fatalf("main.go missing bounded memory primitive %q", required)
+		}
+	}
+	for _, forbidden := range []string{
+		"memory.Compact(",
+		"memory.Compose(",
+		"memory.MergeSummary(",
+	} {
+		if strings.Contains(source, forbidden) {
+			t.Fatalf("main.go contains legacy memory primitive %q", forbidden)
+		}
+	}
+}
+
 func readMainSource(t *testing.T) string {
 	t.Helper()
 	_, currentFile, _, ok := runtime.Caller(0)
