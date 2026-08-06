@@ -19,8 +19,8 @@ Después de integrar el hotfix de descarga de modelos:
 
 ## Corrección
 
-- normalizar la salida de versión para admitir `0.4.0-beta.1` y `v0.4.0-beta.1` sin duplicar prefijo;
-- añadir test unitario de versión;
+- normalizar la versión inyectada para admitir `0.4.0-beta.1` y `v0.4.0-beta.1` sin duplicar prefijo;
+- añadir un contrato ejecutable de versión y rebuild;
 - forzar rebuild de los binarios Go cuando se ejecuta `make build` o `make install`;
 - instalar directorios de modelos con modo `0750` y archivos con modo `0640`, propiedad `xarlatan:xarlatan`;
 - validar explícitamente que el usuario `xarlatan` puede leer configuración y modelos;
