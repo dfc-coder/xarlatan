@@ -141,7 +141,6 @@ func TestSessionRespectsContextAndBlankInput(t *testing.T) {
 
 func TestSessionReturnsDefensiveCommittedHistory(t *testing.T) {
 	arguments := json.RawMessage(`{"query":"safe"}`)
-	arguments = json.RawMessage(`{"query":"safe"}`)
 	committed := []llm.Message{
 		{Role: "system", Content: "trusted"},
 		{Role: "user", Content: "hello"},
