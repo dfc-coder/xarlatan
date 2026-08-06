@@ -4,14 +4,15 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math"
 	"os/exec"
 	"time"
 )
 
 const (
-	defaultRearmCooldown      = 700 * time.Millisecond
-	defaultStableSilence      = 560 * time.Millisecond
-	defaultRearmThreshold     = 0.012
+	defaultRearmCooldown  = 700 * time.Millisecond
+	defaultStableSilence  = 560 * time.Millisecond
+	defaultRearmThreshold = 0.012
 )
 
 type playbackGuard interface {
@@ -107,7 +108,8 @@ func (g *microphoneRearmGuard) waitForStableSilence(ctx context.Context, reader 
 		return fmt.Errorf("rearm audio reader is nil")
 	}
 
-	stableChunks := int((g.stableSilence + chunkDurationMS*time.Millisecond - 1) / (chunkDurationMS * time.Millisecond))
+	chunkDuration := chunkDurationMS * time.Millisecond
+	stableChunks := int((g.stableSilence + chunkDuration - 1) / chunkDuration)
 	if stableChunks < 1 {
 		stableChunks = 1
 	}
@@ -169,21 +171,5 @@ func rmsFloat32(samples []float32) float64 {
 		value := float64(sample)
 		sum += value * value
 	}
-	return sqrt(sum / float64(len(samples)))
-}
-
-// sqrt uses Newton iteration to keep this small helper independent from the
-// VAD package's unexported RMS implementation.
-func sqrt(value float64) float64 {
-	if value <= 0 {
-		return 0
-	}
-	guess := value
-	if guess < 1 {
-		guess = 1
-	}
-	for i := 0; i < 12; i++ {
-		guess = 0.5 * (guess + value/guess)
-	}
-	return guess
+	return math.Sqrt(sum / float64(len(samples)))
 }
