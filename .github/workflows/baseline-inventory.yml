@@ -7,10 +7,10 @@ on:
       - "go.mod"
       - "go.sum"
       - "Makefile"
+      - "CHANGELOG.md"
       - "scripts/**"
       - "packaging/**"
-      - "docs/baseline/**"
-      - "docs/refactor/**"
+      - "docs/**"
       - ".github/workflows/**"
   push:
     branches:
@@ -49,14 +49,20 @@ jobs:
           test -f cmd/assistant/main_test.go
           test -f cmd/assistant/shutdown_test.go
           test -f scripts/tests/wi08_contract_test.sh
+          test -f scripts/tests/wi09_contract_test.sh
           test -f scripts/install.sh
           test -f scripts/uninstall.sh
           test -f scripts/rollback.sh
+          test -f scripts/preflight.sh
+          test -f scripts/beta_acceptance.sh
+          test -f scripts/package_release.sh
           test -f packaging/config.yaml
           test -f packaging/systemd/xarlatan.service
           ! grep -R --include='*.go' -n "github.com/local/assistant" cmd internal
           ! grep -n "github.com/local/assistant" go.mod go.sum
           test -f LICENSE
+          test -f CHANGELOG.md
+          test -f docs/BETA_RUNBOOK.md
           test -f docs/baseline/REPOSITORY_LAYOUT.md
           test -f docs/baseline/VALIDATION.md
           test -f docs/baseline/KNOWN_ISSUES.md
@@ -70,4 +76,6 @@ jobs:
           test -f docs/refactor/WI-08_SPEC.md
           test -f docs/refactor/WI-08_USAGE.md
           test -f docs/refactor/WI-08_EVIDENCE.md
+          test -f docs/refactor/WI-09_SPEC.md
+          test -f docs/refactor/WI-09_EVIDENCE.md
           test -z "$(gofmt -l cmd internal)"
