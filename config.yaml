@@ -14,6 +14,7 @@ stt:
   translate: false
 
 llm:
+  mode: "managed"            # managed | external
   server_binary: "./bin/llama-server"
   model: "models/llm/gemma-3-270m-it-Q4_K_M.gguf"
   host: "127.0.0.1"
@@ -21,6 +22,9 @@ llm:
   context_size: 4096
   n_gpu_layers: 0
   threads: 4
+  startup_timeout_ms: 60000
+  shutdown_timeout_ms: 5000
+  health_interval_ms: 250
   temperature: 0.7
   top_p: 0.9
   max_tokens: 512
