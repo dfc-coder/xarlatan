@@ -2,9 +2,7 @@
 set -euo pipefail
 
 DESTDIR="${DESTDIR:-}"
-PREFIX="${PREFIX:-/usr/local}"
 LOCALSTATEDIR="${LOCALSTATEDIR:-/var/lib}"
-SYSTEMD_DIR="${SYSTEMD_DIR:-/etc/systemd/system}"
 SKIP_SYSTEMD="${SKIP_SYSTEMD:-0}"
 
 path_in_root() { printf '%s%s' "$DESTDIR" "$1"; }
@@ -37,7 +35,7 @@ while IFS='|' read -r action logical; do
   esac
 done < "$MANIFEST"
 
-if [[ "$SKIP_SYSTEMD" != "1" && -z "$DESTDIR" && -x "$(command -v systemctl || true)" ]]; then
+if [[ "$SKIP_SYSTEMD" != "1" && -z "$DESTDIR" ]] && command -v systemctl >/dev/null 2>&1; then
   systemctl daemon-reload
 fi
 
