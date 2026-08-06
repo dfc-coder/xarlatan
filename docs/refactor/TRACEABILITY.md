@@ -9,7 +9,7 @@ La matriz vincula requisitos, work items, tests y evidencia de release. Los nomb
 | CFG-001 | Campos YAML desconocidos deben producir error | WI-01 | `TestLoadRejectsUnknownYAMLField` |
 | CFG-002 | Un valor cero válido configurado explícitamente debe preservarse | WI-01 | `TestLoadPreservesExplicitZeroTemperature` |
 | CFG-003 | La configuración debe validarse antes de crear dependencias runtime | WI-01 | tests de `Config.Validate` + startup test |
-| CFG-004 | Solo captura mono está soportada hasta implementar mezcla explícita | WI-01/WI-07 | `TestValidateRejectsNonMonoAudio` |
+| CFG-004 | Solo captura mono está soportada hasta implementar mezcla explícita | WI-01/WI-07 | `TestValidateRejectsNonMonoAudio`, `TestRecorderCalculatesMonoChunkSize` |
 | POL-001 | Las herramientas mutables están deshabilitadas por defecto | WI-01 | `TestToolPolicyDeniesMutationByDefault` |
 | POL-002 | Una tool no permitida no puede registrarse ni ejecutarse | WI-01 | registry/executor tests |
 | POL-003 | Filesystem requiere root absoluto y válido | WI-01 | config validation tests |
@@ -46,7 +46,7 @@ WI-04 está implementado y su evidencia consolidada se encuentra en `docs/refact
 
 | ID | Requisito | Work item | Evidencia automatizada exacta |
 |---|---|---|---|
-| AGT-001 | Existe un único runtime de orquestación | WI-04 | `TestApplicationUsesOrchestratorOnly` |
+| AGT-001 | Existe un único runtime de orquestación | WI-04 | `TestMainConstructsSingleRuntimeSessionAndApplication` |
 | AGT-002 | Respuestas directas no ejecutan tools | WI-04 | `TestAgentReturnsDirectReply` |
 | AGT-003 | Se soportan múltiples tool rounds | WI-04 | `TestAgentExecutesOneToolRound`, `TestAgentExecutesMultipleToolRounds` |
 | AGT-004 | Tool rounds tienen límite configurable | WI-04 | `TestAgentStopsAtConfiguredRoundLimit`, `TestNewAgentRuntimeRejectsInvalidConfig` |
@@ -88,20 +88,22 @@ WI-06 está implementado y su evidencia consolidada se encuentra en `docs/refact
 
 ## Audio y aplicación
 
-| ID | Requisito | Work item | Evidencia mínima |
+WI-07 está implementado por PR #29 y su evidencia consolidada se encuentra en `docs/refactor/WI-07_EVIDENCE.md`.
+
+| ID | Requisito | Work item | Evidencia automatizada exacta |
 |---|---|---|---|
-| AUD-001 | El cálculo de chunks corresponde a audio mono | WI-07 | chunk size test |
-| AUD-002 | Recorder respeta cancelación | WI-07 | recorder cancellation test |
-| AUD-003 | EOF parcial se maneja sin corrupción | WI-07 | partial read test |
-| AUD-004 | Síntesis y playback tienen errores diferenciados | WI-07 | speaker tests |
-| AUD-005 | VAD y pre-roll mantienen comportamiento baseline | WI-00/WI-07 | regression suite |
-| AUD-006 | Métricas por etapa no incluyen audio ni secretos | WI-07 | observability review |
-| APP-001 | Error STT no invoca agente | WI-07 | application test |
-| APP-002 | Error agente no invoca TTS | WI-07 | application test |
-| APP-003 | Error TTS no termina el loop | WI-07 | recovery test |
-| APP-004 | Un turno exitoso recorre todas las etapas | WI-07 | E2E fake test |
-| APP-005 | Shutdown detiene dependencias en orden | WI-07 | shutdown test |
-| APP-006 | `main.go` solo compone dependencias y señales | WI-07 | review + size/structure check |
+| AUD-001 | El cálculo de chunks corresponde a PCM mono S16_LE | WI-07 | `TestRecorderCalculatesMonoChunkSize` |
+| AUD-002 | Captura y playback respetan cancelación | WI-07 | `TestRecorderStopsOnCancellation`, `TestPlayerStopsOnCancellation` |
+| AUD-003 | EOF parcial procesa únicamente frames completos | WI-07 | `TestRecorderProcessesPartialEOF` |
+| AUD-004 | Síntesis y playback son etapas y errores diferenciados | WI-07 | `TestApplicationSkipsPlaybackWhenSynthesisFails`, `TestApplicationRunRecoversAfterPlaybackError` |
+| AUD-005 | VAD, pre-roll y silencio final mantienen comportamiento baseline | WI-00/WI-07 | `TestRecorderProcessChunk_PrependsPreRollOnSpeechStart`, `TestRecorderProcessChunk_IncludesTrailingSilenceBeforeFinish` |
+| AUD-006 | Traces y métricas no incluyen audio ni contenido conversacional | WI-07 | `TestApplicationTraceDoesNotContainConversationContent` |
+| APP-001 | Error o transcript vacío de STT no invoca agente | WI-07 | `TestApplicationSkipsAgentWhenSTTFails`, `TestApplicationSkipsAgentWhenTranscriptIsEmpty` |
+| APP-002 | Error del agente no invoca síntesis ni playback | WI-07 | `TestApplicationSkipsSynthesisWhenAgentFails` |
+| APP-003 | Errores de síntesis y playback son recuperables para el loop | WI-07 | `TestApplicationRunRecoversAfterSynthesisError`, `TestApplicationRunRecoversAfterPlaybackError` |
+| APP-004 | Un turno exitoso recorre todas las etapas una vez y en orden | WI-07 | `TestApplicationCompletesVoiceTurn`, `TestApplicationEmitsOrderedStates` |
+| APP-005 | Cancelación detiene la etapa activa y shutdown respeta ownership inverso | WI-07 | `TestApplicationStopsDuringEveryStageOnCancellation`, `TestMainClosesOwnedResourcesInReverseAcquisitionOrder` |
+| APP-006 | `main.go` solo compone dependencias, señales y lifecycle | WI-07 | `TestMainIsCompositionRootOnly`, `TestMainConstructsSingleRuntimeSessionAndApplication` |
 
 ## Operación y release
 
