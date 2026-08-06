@@ -150,7 +150,7 @@ func TestSessionReturnsDefensiveCommittedHistory(t *testing.T) {
 				Name:      "lookup",
 				Arguments: arguments,
 			},
-		}},
+		}}},
 		{Role: "tool", ToolCallID: "call-1", Content: "result"},
 		{Role: "assistant", Content: "reply"},
 	}
