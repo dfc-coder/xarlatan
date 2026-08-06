@@ -95,20 +95,18 @@ else
   mark_fail
 fi
 
-if command -v systemctl >/dev/null 2>&1 && [[ -f /etc/systemd/system/xarlatan.service ]]; then
-  SUDO=()
-  [[ "$(id -u)" -eq 0 ]] || SUDO=(sudo)
-  "${SUDO[@]}" systemctl daemon-reload
-  if "${SUDO[@]}" systemctl start xarlatan.service; then
+if command -v systemctl >/dev/null 2>&1 && systemctl --user cat xarlatan.service >/dev/null 2>&1; then
+  systemctl --user daemon-reload
+  if systemctl --user start xarlatan.service; then
     sleep 5
-    if "${SUDO[@]}" systemctl is-active --quiet xarlatan.service; then
+    if systemctl --user is-active --quiet xarlatan.service; then
       SERVICE_SMOKE=PASS
     else
       SERVICE_SMOKE=FAIL
       mark_fail
     fi
-    "${SUDO[@]}" systemctl status xarlatan.service --no-pager > "$TMP/service-status.log" 2>&1 || true
-    "${SUDO[@]}" systemctl stop xarlatan.service || true
+    systemctl --user status xarlatan.service --no-pager > "$TMP/service-status.log" 2>&1 || true
+    systemctl --user stop xarlatan.service || true
   else
     SERVICE_SMOKE=FAIL
     mark_fail
@@ -163,7 +161,7 @@ cat > "$REPORT" <<REPORT_EOF
 | Preflight | $PREFLIGHT |
 | ALSA capture | $AUDIO_CAPTURE |
 | ALSA playback confirmed | $AUDIO_PLAYBACK |
-| systemd startup/stop | $SERVICE_SMOKE |
+| systemd user startup/stop | $SERVICE_SMOKE |
 | voice -> STT -> LLM -> TTS -> playback | $VOICE_PIPELINE |
 | no spontaneous post-playback turns | $NO_SPONTANEOUS_TURNS |
 
