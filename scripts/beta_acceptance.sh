@@ -56,6 +56,7 @@ AUDIO_CAPTURE=FAIL
 AUDIO_PLAYBACK=PENDING
 SERVICE_SMOKE=PENDING
 VOICE_PIPELINE=PENDING
+NO_SPONTANEOUS_TURNS=PENDING
 
 mark_fail() { STATUS=FAIL; }
 confirm() {
@@ -121,21 +122,28 @@ else
   fi
 fi
 
-printf '\nForeground voice pipeline test. Say a short question after the assistant starts.\n'
+printf '\nForeground voice pipeline test. Ask exactly one short question, then remain silent.\n'
 printf 'The process will stop automatically after %s seconds.\n' "$VOICE_WINDOW_SECONDS"
 set +e
 timeout --signal=INT --kill-after=5s "${VOICE_WINDOW_SECONDS}s" "$XARLATAN_BIN" -config "$CONFIG" -log info -no-tools 2>&1 | tee "$TMP/foreground.log"
 foreground_rc=${PIPESTATUS[0]}
 set -e
 if [[ "$foreground_rc" -eq 0 || "$foreground_rc" -eq 124 || "$foreground_rc" -eq 130 ]]; then
-  if confirm "Did Xarlatan transcribe, answer and speak at least one response?"; then
+  if confirm "Did Xarlatan transcribe, answer and speak exactly one requested response?"; then
     VOICE_PIPELINE=PASS
   else
     VOICE_PIPELINE=FAIL
     mark_fail
   fi
+  if confirm "After that response, did Xarlatan remain silent without spontaneous turns?"; then
+    NO_SPONTANEOUS_TURNS=PASS
+  else
+    NO_SPONTANEOUS_TURNS=FAIL
+    mark_fail
+  fi
 else
   VOICE_PIPELINE=FAIL
+  NO_SPONTANEOUS_TURNS=FAIL
   mark_fail
 fi
 
@@ -157,6 +165,7 @@ cat > "$REPORT" <<REPORT_EOF
 | ALSA playback confirmed | $AUDIO_PLAYBACK |
 | systemd startup/stop | $SERVICE_SMOKE |
 | voice -> STT -> LLM -> TTS -> playback | $VOICE_PIPELINE |
+| no spontaneous post-playback turns | $NO_SPONTANEOUS_TURNS |
 
 ## Final result
 
