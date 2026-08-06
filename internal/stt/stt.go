@@ -4,7 +4,6 @@ package stt
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	sherpa "github.com/k2-fsa/sherpa-onnx-go/sherpa_onnx"
 
@@ -90,6 +89,5 @@ func (t *Transcriber) Transcribe(ctx context.Context, buffer audio.Buffer) (stri
 		return "", err
 	}
 
-	text := strings.TrimSpace(stream.GetResult().Text)
-	return text, nil
+	return filterTranscript(stream.GetResult().Text), nil
 }
