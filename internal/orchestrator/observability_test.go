@@ -51,13 +51,11 @@ func (o *spyObserver) finishNodes() []string {
 func TestSlogObserver_LogsNodeStartAndFinish(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-
 	orch := NewWithObserver("router", SlogObserver{Logger: logger}, Router{}, ResponseComposer{}, Finalizer{})
 	_, err := orch.Run(context.Background(), State{Input: "dime la hora"})
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
-
 	out := buf.String()
 	if !strings.Contains(out, "orchestrator node start") {
 		t.Fatalf("logs missing node start event: %s", out)
@@ -72,7 +70,7 @@ func TestSlogObserver_LogsNodeStartAndFinish(t *testing.T) {
 
 func TestMetricsObserver_CountsTransitionsAndToolCalls(t *testing.T) {
 	metrics := NewMetricsObserver()
-	r := tools.NewRegistry()
+	r := tools.NewRegistry(tools.AllowAllToolPolicy())
 	r.Register(echoTool{})
 	orch := NewWithObserver(
 		"router",
@@ -82,7 +80,6 @@ func TestMetricsObserver_CountsTransitionsAndToolCalls(t *testing.T) {
 		ToolExecutor{Executor: tools.NewExecutor(r), Observer: metrics},
 		Finalizer{},
 	)
-
 	_, err := orch.Run(context.Background(), State{
 		Input: "dime algo",
 		ToolCalls: []tools.ToolCall{{
@@ -97,7 +94,6 @@ func TestMetricsObserver_CountsTransitionsAndToolCalls(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
-
 	snap := metrics.Snapshot()
 	if got, want := snap.NodeRuns["router"], 1; got != want {
 		t.Fatalf("router runs = %d, want %d", got, want)
@@ -121,7 +117,7 @@ func TestMetricsObserver_CountsTransitionsAndToolCalls(t *testing.T) {
 
 func TestFlow_DebugTraceShowsFullRoute(t *testing.T) {
 	observer := &spyObserver{}
-	r := tools.NewRegistry()
+	r := tools.NewRegistry(tools.AllowAllToolPolicy())
 	r.Register(echoTool{})
 	orch := NewWithObserver(
 		"router",
@@ -131,7 +127,6 @@ func TestFlow_DebugTraceShowsFullRoute(t *testing.T) {
 		ToolExecutor{Executor: tools.NewExecutor(r), Observer: observer},
 		Finalizer{},
 	)
-
 	state, err := orch.Run(context.Background(), State{
 		Input:   "dime algo",
 		Summary: "resumen previo",
@@ -148,9 +143,8 @@ func TestFlow_DebugTraceShowsFullRoute(t *testing.T) {
 		t.Fatalf("Run() error = %v", err)
 	}
 	if !state.Done {
-		t.Fatalf("Done = false, want true")
+		t.Fatal("Done = false, want true")
 	}
-
 	if got, want := observer.finishNodes(), []string{"router", "response_composer", "tool_executor", "response_composer", "finalizer"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("finish node trace = %v, want %v", got, want)
 	}
