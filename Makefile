@@ -16,7 +16,7 @@ ifdef GGML_CUDA
   CMAKE_LLAMA_EXTRA := -DGGML_CUDA=ON
 endif
 
-.PHONY: all build deps llama models install uninstall rollback clean clean-all clean-llama reset-llama help
+.PHONY: all build deps llama models install uninstall rollback release-candidate preflight beta-acceptance clean clean-all clean-llama reset-llama help
 
 all: deps build ## Build llama-server and all Go commands
 
@@ -69,14 +69,23 @@ uninstall: ## Remove binaries and service, preserving config/models
 rollback: ## Restore the state before the last install
 	@bash scripts/rollback.sh
 
+release-candidate: all ## Build deterministic beta archive and SHA-256
+	@bash scripts/package_release.sh "$(VERSION)"
+
+preflight: build ## Validate local beta prerequisites and models
+	@EXPECTED_VERSION="$(VERSION)" XARLATAN_BIN="$(BIN_DIR)/assistant" LLAMA_SERVER_BIN="$(BIN_DIR)/llama-server" bash scripts/preflight.sh config.yaml
+
+beta-acceptance: all ## Run interactive physical beta acceptance
+	@EXPECTED_VERSION="$(VERSION)" XARLATAN_BIN="$(BIN_DIR)/assistant" LLAMA_SERVER_BIN="$(BIN_DIR)/llama-server" bash scripts/beta_acceptance.sh config.yaml
+
 clean-llama:
 	@rm -rf $(LLAMA_DIR)/build $(BIN_DIR)/llama-server
 
 reset-llama:
 	@rm -rf $(LLAMA_DIR) $(BIN_DIR)/llama-server
 
-clean: ## Remove generated binaries
-	@rm -rf $(BIN_DIR)
+clean: ## Remove generated binaries and release archives
+	@rm -rf $(BIN_DIR) $(REPO_ROOT)/dist
 
 clean-all: clean ## Remove generated binaries and vendored llama.cpp
 	@rm -rf $(VENDOR_DIR)
