@@ -109,6 +109,7 @@ jobs:
 
       - name: Verify systemd user unit and hardening
         run: |
+          sudo install -Dm755 /bin/true /usr/local/bin/xarlatan
           systemd-analyze verify packaging/systemd/xarlatan.service
           # systemd-analyze uses a 0..100 percentage threshold; 50 corresponds to 5.0/10.
           systemd-analyze security --offline=yes --threshold=50 packaging/systemd/xarlatan.service
