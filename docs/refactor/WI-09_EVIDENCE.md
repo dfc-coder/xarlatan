@@ -17,7 +17,7 @@ La preparación de `v0.4.0-beta.1` puede validarse en CI y en un entorno descart
 
 ## Contratos
 
-- `scripts/tests/wi09_contract_test.sh` verifica assets, sintaxis, workflow, target de release, política de privacidad y preflight con fakes.
+- `scripts/tests/wi09_contract_test.sh` verifica assets, sintaxis, workflow, target de release, política de privacidad, dispositivo de audio coherente y preflight con fakes.
 - `scripts/preflight.sh` valida host, comandos, versión, binarios, modelos, loopback, filesystem deshabilitado y enumeración ALSA.
 - `scripts/beta_acceptance.sh` exige captura, playback, servicio y pipeline real y emite un reporte sin contenido conversacional.
 - `scripts/package_release.sh` crea un tar ordenado, normalizado y verificable mediante SHA-256.
@@ -30,7 +30,7 @@ go vet ./...
 go test -count=1 -coverprofile=coverage.out ./...
 go test -count=20 ./internal/orchestrator ./internal/tools ./internal/llm ./internal/memory ./internal/audio ./internal/conversation ./internal/application
 go test -race -count=1 ./internal/orchestrator ./internal/tools ./internal/llm ./internal/memory ./internal/audio ./internal/conversation ./internal/application
-shellcheck scripts/*.sh scripts/tests/*.sh
+shellcheck scripts/install.sh scripts/uninstall.sh scripts/rollback.sh scripts/preflight.sh scripts/beta_acceptance.sh scripts/package_release.sh scripts/tests/wi08_contract_test.sh scripts/tests/wi09_contract_test.sh
 bash scripts/tests/wi08_contract_test.sh
 bash scripts/tests/wi09_contract_test.sh
 make release-candidate VERSION=v0.4.0-beta.1
@@ -54,7 +54,8 @@ systemd-analyze security --offline=yes --threshold=50 packaging/systemd/xarlatan
 - gate equivalente `--threshold=50`: PASS;
 - preflight con binarios, modelos, ALSA y configuración fake: PASS;
 - creación repetida del paquete con `SOURCE_DATE_EPOCH=0`: mismo SHA-256;
-- auditoría de issues abiertos: solo epic, WI-09 y work items de Fase 2; no aparece un issue P0 separado.
+- auditoría de issues abiertos: solo epic, WI-09 y work items de Fase 2; no aparece un issue P0 separado;
+- PR #31 no cambia archivos Go: solo release, scripts, docs, Makefile y workflows.
 
 La validación aislada no sustituye la suite Go sobre un checkout completo ni el hardware real. GitHub Actions no registró runs automáticos para los commits escritos por el conector, por lo que no se declara un run verde inexistente.
 
@@ -63,6 +64,9 @@ La validación aislada no sustituye la suite Go sobre un checkout completo ni el
 1. CI construía `VERSION=0.4.0-ci` pero esperaba `assistant v0.4.0-ci`; se normalizó a `VERSION=v0.4.0-ci`.
 2. La aceptación podía terminar en `PASS` con systemd ausente; ahora el servicio instalado es obligatorio por defecto.
 3. El gate `systemd-analyze --threshold=5` interpretaba 5%, no 5,0/10; se cambió a `--threshold=50`.
+4. La captura manual podía usar un dispositivo distinto al configurado para la aplicación; ahora esa discrepancia se rechaza.
+5. ShellCheck estaba expandido a scripts legacy fuera del slice; ahora se limita explícitamente a los scripts WI-08/WI-09.
+6. El workflow de release no repetía race, repetición ni systemd; ahora es autocontenido.
 
 ## Auditoría P0
 
