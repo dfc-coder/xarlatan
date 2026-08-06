@@ -56,7 +56,8 @@ jobs:
         run: |
           shellcheck \
             scripts/install.sh scripts/uninstall.sh scripts/rollback.sh \
-            scripts/preflight.sh scripts/beta_acceptance.sh scripts/package_release.sh \
+            scripts/download_models.sh scripts/preflight.sh \
+            scripts/beta_acceptance.sh scripts/package_release.sh \
             scripts/tests/wi08_contract_test.sh scripts/tests/wi09_contract_test.sh
           bash scripts/tests/wi08_contract_test.sh
           bash scripts/tests/wi09_contract_test.sh
