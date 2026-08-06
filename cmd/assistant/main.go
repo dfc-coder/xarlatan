@@ -22,12 +22,14 @@ import (
 )
 
 var (
-	cfgPath       = flag.String("config", "config.yaml", "path to config.yaml")
-	logLevel      = flag.String("log", "info", "log level: debug|info|warn|error")
-	noTools       = flag.Bool("no-tools", false, "disable all tools")
-	reset         = flag.Bool("reset", false, "reset conversation history on startup")
-	maxToolRounds = flag.Int("max-tool-rounds", 4, "maximum tool rounds per user turn")
-	version       = flag.Bool("version", false, "print version and exit")
+	cfgPath         = flag.String("config", "config.yaml", "path to config.yaml")
+	logLevel        = flag.String("log", "info", "log level: debug|info|warn|error")
+	noTools         = flag.Bool("no-tools", false, "disable all tools")
+	reset           = flag.Bool("reset", false, "reset conversation history on startup")
+	maxToolRounds   = flag.Int("max-tool-rounds", 4, "maximum tool rounds per user turn")
+	maxHistoryBytes = flag.Int("max-history-bytes", 12_288, "maximum JSON bytes retained in conversation history")
+	maxSummaryBytes = flag.Int("max-summary-bytes", 2_048, "maximum bytes retained in the untrusted memory summary")
+	version         = flag.Bool("version", false, "print version and exit")
 )
 
 const buildVersion = "0.2.0"
@@ -48,6 +50,15 @@ func main() {
 func run() error {
 	if *maxToolRounds <= 0 {
 		return fmt.Errorf("max-tool-rounds must be greater than zero")
+	}
+	if *maxHistoryBytes <= 0 {
+		return fmt.Errorf("max-history-bytes must be greater than zero")
+	}
+	if *maxSummaryBytes <= 0 {
+		return fmt.Errorf("max-summary-bytes must be greater than zero")
+	}
+	if *maxSummaryBytes >= *maxHistoryBytes {
+		return fmt.Errorf("max-summary-bytes must be less than max-history-bytes")
 	}
 
 	cfg, err := config.Load(*cfgPath)
@@ -101,15 +112,21 @@ func run() error {
 		return fmt.Errorf("llm client: %w", err)
 	}
 
-	summary := ""
-	history := memory.Compose(cfg.LLM.SystemPrompt, summary, nil)
+	memoryManager, err := memory.New(
+		memory.Config{MaxHistoryBytes: *maxHistoryBytes, MaxSummaryBytes: *maxSummaryBytes},
+		cfg.LLM.SystemPrompt,
+		memory.ExtractiveSummarizer{},
+	)
+	if err != nil {
+		return fmt.Errorf("memory: %w", err)
+	}
+	if *reset {
+		memoryManager.Reset()
+	}
+	history := memoryManager.History()
+
 	var registry *tools.Registry
 	var executor *tools.Executor
-
-	if *reset {
-		summary = ""
-		history = memory.Compose(cfg.LLM.SystemPrompt, summary, nil)
-	}
 	if !*noTools {
 		registry, err = buildRegistry(cfg)
 		if err != nil {
@@ -178,16 +195,25 @@ func run() error {
 		}
 		printAgentTrace(turn.Trace)
 
-		snap := memory.Compact(turn.History, 20)
+		snapshot, err := memoryManager.Update(ctx, turn.History)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			return fmt.Errorf("memory update: %w", err)
+		}
+		history = snapshot.History
 		slog.Debug(
 			"memory compact",
-			"input_messages", snap.Trace.InputMessages,
-			"dropped_messages", snap.Trace.DroppedMessages,
-			"window_messages", snap.Trace.WindowMessages,
-			"summary_generated", snap.Trace.SummaryGenerated,
+			"input_messages", snapshot.Trace.InputMessages,
+			"input_bytes", snapshot.Trace.InputBytes,
+			"output_messages", snapshot.Trace.OutputMessages,
+			"output_bytes", snapshot.Trace.OutputBytes,
+			"dropped_turns", snapshot.Trace.DroppedTurns,
+			"dropped_messages", snapshot.Trace.DroppedMessages,
+			"summary_generated", snapshot.Trace.SummaryGenerated,
+			"summary_bytes", snapshot.Trace.SummaryBytes,
 		)
-		summary = memory.MergeSummary(summary, snap.Summary)
-		history = memory.Compose(cfg.LLM.SystemPrompt, summary, snap.Window)
 		slog.Debug("agent", "ms", time.Since(t0).Milliseconds(), "rounds", len(turn.Trace.Rounds))
 		fmt.Printf("🤖  %s\n", turn.Reply)
 
