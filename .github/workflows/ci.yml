@@ -11,6 +11,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   go:
     runs-on: ubuntu-24.04
@@ -53,20 +57,37 @@ jobs:
       - name: Test
         run: go test -count=1 -coverprofile=coverage.out ./...
 
-      - name: Enforce memory coverage
+      - name: Enforce focused coverage
         shell: bash
         run: |
           set -euo pipefail
           go test -count=1 -coverprofile=memory-coverage.out ./internal/memory
-          coverage="$(go tool cover -func=memory-coverage.out | awk '/^total:/ {gsub("%", "", $3); print $3}')"
-          awk -v coverage="$coverage" 'BEGIN { if ((coverage + 0) < 80) exit 1 }'
-          printf 'memory coverage: %s%%\n' "$coverage"
+          go test -count=1 -coverprofile=application-coverage.out ./internal/application
+          go test -count=1 -coverprofile=conversation-coverage.out ./internal/conversation
+          go test -count=1 -coverprofile=audio-coverage.out ./internal/audio
+          go test -count=1 -coverprofile=vad-coverage.out ./internal/vad
 
-      - name: Repeat agent, tool, LLM, and memory tests
-        run: go test -count=20 ./internal/orchestrator ./internal/tools ./internal/llm ./internal/memory
+          enforce() {
+            local name="$1"
+            local file="$2"
+            local minimum="$3"
+            local coverage
+            coverage="$(go tool cover -func="$file" | awk '/^total:/ {gsub("%", "", $3); print $3}')"
+            awk -v coverage="$coverage" -v minimum="$minimum" 'BEGIN { if ((coverage + 0) < (minimum + 0)) exit 1 }'
+            printf '%s coverage: %s%%\n' "$name" "$coverage"
+          }
 
-      - name: Race-test agent, tools, LLM, and memory
-        run: go test -race -count=1 ./internal/orchestrator ./internal/tools ./internal/llm ./internal/memory
+          enforce memory memory-coverage.out 80
+          enforce application application-coverage.out 80
+          enforce conversation conversation-coverage.out 80
+          enforce audio audio-coverage.out 51.1
+          enforce vad vad-coverage.out 90.1
+
+      - name: Repeat agent, tool, LLM, memory, audio, conversation, and application tests
+        run: go test -count=20 ./internal/orchestrator ./internal/tools ./internal/llm ./internal/memory ./internal/audio ./internal/conversation ./internal/application
+
+      - name: Race-test agent, tools, LLM, memory, audio, conversation, and application
+        run: go test -race -count=1 ./internal/orchestrator ./internal/tools ./internal/llm ./internal/memory ./internal/audio ./internal/conversation ./internal/application
 
       - name: Build commands
         run: go build ./cmd/assistant ./cmd/calibrate
@@ -78,3 +99,7 @@ jobs:
           path: |
             coverage.out
             memory-coverage.out
+            application-coverage.out
+            conversation-coverage.out
+            audio-coverage.out
+            vad-coverage.out

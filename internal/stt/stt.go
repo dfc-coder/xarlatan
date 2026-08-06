@@ -2,11 +2,13 @@
 package stt
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
 	sherpa "github.com/k2-fsa/sherpa-onnx-go/sherpa_onnx"
 
+	"github.com/dfc-coder/xarlatan/internal/audio"
 	"github.com/dfc-coder/xarlatan/internal/config"
 )
 
@@ -46,20 +48,47 @@ func New(cfg config.STTConfig, sampleRate int) (*Transcriber, error) {
 
 // Close releases model resources.
 func (t *Transcriber) Close() error {
-	if t.recognizer != nil {
+	if t != nil && t.recognizer != nil {
 		sherpa.DeleteOfflineRecognizer(t.recognizer)
 		t.recognizer = nil
 	}
 	return nil
 }
 
-// Transcribe converts float32 PCM samples (16 kHz, mono) to text.
-func (t *Transcriber) Transcribe(samples []float32) (string, error) {
+// Transcribe converts one normalized mono buffer to text. The offline CGo
+// decode cannot be preempted after it starts, so cancellation is checked before
+// and immediately after the decode boundary.
+func (t *Transcriber) Transcribe(ctx context.Context, buffer audio.Buffer) (string, error) {
+	if t == nil || t.recognizer == nil {
+		return "", fmt.Errorf("transcriber is not initialized")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if buffer.Empty() {
+		return "", nil
+	}
+	if err := buffer.Validate(); err != nil {
+		return "", err
+	}
+	if buffer.SampleRate != t.sampleRate {
+		return "", fmt.Errorf("unexpected sample rate %d, want %d", buffer.SampleRate, t.sampleRate)
+	}
+
 	stream := sherpa.NewOfflineStream(t.recognizer)
+	if stream == nil {
+		return "", fmt.Errorf("sherpa stream: nil")
+	}
 	defer sherpa.DeleteOfflineStream(stream)
 
-	stream.AcceptWaveform(t.sampleRate, samples)
+	stream.AcceptWaveform(buffer.SampleRate, buffer.Samples)
 	t.recognizer.Decode(stream)
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 
 	text := strings.TrimSpace(stream.GetResult().Text)
 	return text, nil

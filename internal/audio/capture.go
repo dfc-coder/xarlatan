@@ -14,8 +14,11 @@ import (
 	"github.com/dfc-coder/xarlatan/internal/vad"
 )
 
-const chunkDurationMS = 80 // process audio in 80 ms chunks
-const preRollChunkCount = 2
+const (
+	chunkDurationMS   = 80
+	preRollChunkCount = 2
+	pcmBytesPerSample = 2
+)
 
 // Recorder captures audio from the default ALSA microphone.
 type Recorder struct {
@@ -43,12 +46,32 @@ func NewRecorder(cfg config.AudioConfig) *Recorder {
 	return &Recorder{cfg: cfg, vad: v, preRoll: newPreRollBuffer(preRollChunkCount)}
 }
 
+// Next implements the application voice-input boundary.
+func (r *Recorder) Next(ctx context.Context) (Buffer, error) {
+	samples, err := r.RecordUntilSilence(ctx)
+	if err != nil {
+		return Buffer{}, err
+	}
+	return Buffer{Samples: samples, SampleRate: r.cfg.SampleRate, Channels: r.cfg.Channels}, nil
+}
+
 // RecordUntilSilence records audio until silence is detected or ctx is cancelled.
 // Returns PCM samples as float32 in the range [-1, 1] at the configured sample rate.
 func (r *Recorder) RecordUntilSilence(ctx context.Context) ([]float32, error) {
-	slog.Debug("Waiting for speech…")
+	if r == nil {
+		return nil, fmt.Errorf("recorder is nil")
+	}
+	if _, err := pcmChunkBytes(r.cfg.SampleRate, r.cfg.Channels); err != nil {
+		return nil, err
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
-	// arecord arguments: raw signed 16-bit little-endian PCM
+	slog.Debug("Waiting for speech…")
 	args := []string{
 		"-D", r.cfg.Device,
 		"-f", "S16_LE",
@@ -56,8 +79,8 @@ func (r *Recorder) RecordUntilSilence(ctx context.Context) ([]float32, error) {
 		"-c", fmt.Sprintf("%d", r.cfg.Channels),
 		"-t", "raw",
 		"--buffer-size=2048",
-		"-q", // quiet — suppress ALSA messages to stderr
-		"-",  // write to stdout
+		"-q",
+		"-",
 	}
 
 	cmd := exec.CommandContext(ctx, "arecord", args...)
@@ -65,26 +88,37 @@ func (r *Recorder) RecordUntilSilence(ctx context.Context) ([]float32, error) {
 	if err != nil {
 		return nil, fmt.Errorf("arecord pipe: %w", err)
 	}
-
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("arecord start: %w", err)
 	}
 	defer func() {
-		_ = cmd.Process.Kill()
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
 		_ = cmd.Wait()
 	}()
 
-	return r.recordFromReader(ctx, stdout, time.Now().Add(r.cfg.MaxDuration()))
+	samples, err := r.recordFromReader(ctx, stdout, time.Now().Add(r.cfg.MaxDuration()))
+	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
+		return nil, err
+	}
+	return samples, nil
 }
 
 func (r *Recorder) recordFromReader(ctx context.Context, stdout io.Reader, deadline time.Time) ([]float32, error) {
-
-	samplesPerChunk := r.cfg.SampleRate * chunkDurationMS / 1000
-	bytesPerChunk := samplesPerChunk * 2 // int16 = 2 bytes
+	bytesPerChunk, err := pcmChunkBytes(r.cfg.SampleRate, r.cfg.Channels)
+	if err != nil {
+		return nil, err
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 
 	buf := make([]byte, bytesPerChunk)
 	var recording []float32
-
 	r.vad.Reset()
 	r.preRoll.reset()
 
@@ -94,39 +128,39 @@ func (r *Recorder) recordFromReader(ctx context.Context, stdout io.Reader, deadl
 			slog.Debug("VAD: cut by timeout")
 			break
 		}
-
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		default:
+		if err := ctx.Err(); err != nil {
+			return nil, err
 		}
 
-		if _, err := io.ReadFull(stdout, buf); err != nil {
-			if err == io.EOF || err == io.ErrUnexpectedEOF {
-				break
-			}
-			return nil, fmt.Errorf("reading audio: %w", err)
+		n, readErr := io.ReadFull(stdout, buf)
+		completeBytes := n - n%(pcmBytesPerSample*r.cfg.Channels)
+		shouldFinish := false
+		if completeBytes > 0 {
+			chunk := pcmToFloat32(buf[:completeBytes])
+			recording, shouldFinish = r.processChunk(recording, chunk)
 		}
-
-		chunk := pcmToFloat32(buf)
-		var shouldFinish bool
-		recording, shouldFinish = r.processChunk(recording, chunk)
-
 		if shouldFinish {
 			break
 		}
+		if readErr != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return nil, ctxErr
+			}
+			if readErr == io.EOF || readErr == io.ErrUnexpectedEOF {
+				break
+			}
+			return nil, fmt.Errorf("reading audio: %w", readErr)
+		}
 	}
 
-	if len(recording) < r.cfg.SampleRate/4 { // < 250 ms
-		return nil, nil // too short — noise
+	if len(recording) < r.cfg.SampleRate*r.cfg.Channels/4 {
+		return nil, nil
 	}
-
 	return recording, nil
 }
 
 func (r *Recorder) processChunk(recording, chunk []float32) ([]float32, bool) {
 	isSpeaking, shouldFinish := r.vad.ProcessChunk(chunk)
-
 	if isSpeaking {
 		if len(recording) == 0 {
 			recording = r.preRoll.startRecording(chunk)
@@ -137,16 +171,26 @@ func (r *Recorder) processChunk(recording, chunk []float32) ([]float32, bool) {
 	} else if len(recording) == 0 {
 		r.preRoll.add(chunk)
 	}
-
 	return recording, shouldFinish
 }
 
-// pcmToFloat32 converts raw S16_LE bytes to normalised float32.
+func pcmChunkBytes(sampleRate, channels int) (int, error) {
+	if sampleRate <= 0 {
+		return 0, fmt.Errorf("audio sample rate must be greater than zero")
+	}
+	if channels != 1 {
+		return 0, fmt.Errorf("voice capture requires mono audio")
+	}
+	samplesPerChannel := (sampleRate*chunkDurationMS + 999) / 1000
+	return samplesPerChannel * channels * pcmBytesPerSample, nil
+}
+
+// pcmToFloat32 converts raw S16_LE bytes to normalized float32.
 func pcmToFloat32(raw []byte) []float32 {
-	n := len(raw) / 2
+	n := len(raw) / pcmBytesPerSample
 	out := make([]float32, n)
 	for i := 0; i < n; i++ {
-		s := int16(binary.LittleEndian.Uint16(raw[i*2:]))
+		s := int16(binary.LittleEndian.Uint16(raw[i*pcmBytesPerSample:]))
 		out[i] = float32(s) / 32768.0
 	}
 	return out

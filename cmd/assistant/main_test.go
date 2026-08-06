@@ -53,24 +53,29 @@ func TestBuildRegistryAllowsMutationsOnlyWhenExplicit(t *testing.T) {
 	}
 }
 
-func TestApplicationUsesOrchestratorOnly(t *testing.T) {
+func TestMainConstructsSingleRuntimeSessionAndApplication(t *testing.T) {
 	source := readMainSource(t)
-	for _, forbidden := range []string{
-		"llmClient.Generate(",
-		"executor.RunAll(",
-		"RunAllDetailed(",
-		"hasToolCalls(",
-		"toLLMMessages(",
+	for _, required := range []string{
+		"orchestrator.NewAgentRuntime(",
+		"conversation.New(memoryManager, agent)",
+		"application.New(application.Dependencies{",
+		"voiceApplication.Run(ctx)",
 	} {
-		if strings.Contains(source, forbidden) {
-			t.Fatalf("main.go contains second agent-loop primitive %q", forbidden)
+		if !strings.Contains(source, required) {
+			t.Fatalf("main.go missing composition primitive %q", required)
 		}
 	}
-	if got, want := strings.Count(source, "agent.Run("), 1; got != want {
-		t.Fatalf("agent.Run calls = %d, want %d", got, want)
-	}
-	if !strings.Contains(source, "orchestrator.NewAgentRuntime(") {
-		t.Fatal("main.go does not construct AgentRuntime")
+	for _, forbidden := range []string{
+		"llmClient.Generate(",
+		"agent.Run(",
+		"executor.RunAll(",
+		"RunAllDetailed(",
+		"memoryManager.Prepare(",
+		"memoryManager.Update(",
+	} {
+		if strings.Contains(source, forbidden) {
+			t.Fatalf("main.go contains runtime logic %q", forbidden)
+		}
 	}
 }
 
@@ -102,14 +107,11 @@ func TestApplicationOwnsLLMServerLifecycle(t *testing.T) {
 	}
 }
 
-func TestApplicationUsesBoundedMemoryOnly(t *testing.T) {
+func TestMainConstructsBoundedMemoryWithoutOwningMemoryFlow(t *testing.T) {
 	source := readMainSource(t)
 	for _, required := range []string{
 		"memory.New(",
 		"memory.ExtractiveSummarizer{}",
-		"memoryManager.History()",
-		"memoryManager.Prepare(ctx, text)",
-		"memoryManager.Update(ctx, turn.History)",
 		"max-history-bytes",
 		"max-summary-bytes",
 	} {
@@ -121,9 +123,27 @@ func TestApplicationUsesBoundedMemoryOnly(t *testing.T) {
 		"memory.Compact(",
 		"memory.Compose(",
 		"memory.MergeSummary(",
+		"memoryManager.Prepare(",
+		"memoryManager.Update(",
 	} {
 		if strings.Contains(source, forbidden) {
-			t.Fatalf("main.go contains legacy memory primitive %q", forbidden)
+			t.Fatalf("main.go contains memory-flow primitive %q", forbidden)
+		}
+	}
+}
+
+func TestMainIsCompositionRootOnly(t *testing.T) {
+	source := readMainSource(t)
+	for _, forbidden := range []string{
+		"RecordUntilSilence(",
+		".Transcribe(",
+		".Respond(",
+		".Synthesize(",
+		".Speak(",
+		".Play(",
+	} {
+		if strings.Contains(source, forbidden) {
+			t.Fatalf("main.go contains voice-stage logic %q", forbidden)
 		}
 	}
 }
