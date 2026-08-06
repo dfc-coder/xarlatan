@@ -32,7 +32,7 @@ func Errorf(format string, a ...any) Result {
 // ─── JSON Schema ──────────────────────────────────────────────────────────────
 
 type ParameterSchema struct {
-	Type       string              `json:"type"` // always "object"
+	Type       string              `json:"type"`
 	Properties map[string]Property `json:"properties"`
 	Required   []string            `json:"required,omitempty"`
 }
@@ -47,10 +47,8 @@ func NewSchema(required []string, props map[string]Property) ParameterSchema {
 	return ParameterSchema{Type: "object", Properties: props, Required: required}
 }
 
-// ─── OpenAI wire types ────────────────────────────────────────────────────────
-
 type Definition struct {
-	Type     string `json:"type"` // "function"
+	Type     string `json:"type"`
 	Function struct {
 		Name        string          `json:"name"`
 		Description string          `json:"description"`
@@ -58,17 +56,50 @@ type Definition struct {
 	} `json:"function"`
 }
 
-// ─── Registry — simple slice, N is always small ───────────────────────────────
-
 // Registry holds registered tools in insertion order.
-// Linear scan over <20 tools is faster than a map with hashing overhead.
 type Registry struct {
-	tools []Tool
+	tools  []Tool
+	policy ToolPolicy
+	denied map[string]struct{}
 }
 
-func NewRegistry() *Registry { return &Registry{} }
+// NewRegistry accepts an explicit policy. Omitting it uses the secure default.
+func NewRegistry(policies ...ToolPolicy) *Registry {
+	policy := DefaultToolPolicy()
+	if len(policies) > 0 {
+		policy = policies[0]
+	}
+	return &Registry{policy: policy, denied: make(map[string]struct{})}
+}
 
-func (r *Registry) Register(t Tool) { r.tools = append(r.tools, t) }
+// Register stores an allowed tool. Denied tools are remembered so execution
+// can distinguish a policy rejection from an unknown tool name.
+func (r *Registry) Register(t Tool) error {
+	if r == nil {
+		return fmt.Errorf("registry is nil")
+	}
+	if t == nil {
+		return fmt.Errorf("tool is nil")
+	}
+	name := t.Name()
+	if !r.policy.Allows(name) {
+		r.denied[name] = struct{}{}
+		return &ToolDeniedError{Name: name}
+	}
+	if _, exists := r.Get(name); exists {
+		return fmt.Errorf("tool %q already registered", name)
+	}
+	r.tools = append(r.tools, t)
+	return nil
+}
+
+func (r *Registry) IsDenied(name string) bool {
+	if r == nil {
+		return false
+	}
+	_, denied := r.denied[name]
+	return denied
+}
 
 func (r *Registry) Get(name string) (Tool, bool) {
 	for _, t := range r.tools {
@@ -79,7 +110,6 @@ func (r *Registry) Get(name string) (Tool, bool) {
 	return nil, false
 }
 
-// Definitions returns all tools in OpenAI wire format.
 func (r *Registry) Definitions() []Definition {
 	defs := make([]Definition, len(r.tools))
 	for i, t := range r.tools {

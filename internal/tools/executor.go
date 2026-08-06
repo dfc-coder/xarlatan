@@ -42,7 +42,7 @@ func NewExecutor(r *Registry) *Executor {
 	return &Executor{registry: r}
 }
 
-// RunAll executes every ToolCall concurrently and returns the ToolMessages
+// RunAll executes every ToolCall sequentially and returns the ToolMessages
 // to be appended to the conversation, along with a human-readable summary.
 func (e *Executor) RunAll(ctx context.Context, calls []ToolCall) ([]ToolMessage, string) {
 	type work struct {
@@ -52,8 +52,6 @@ func (e *Executor) RunAll(ctx context.Context, calls []ToolCall) ([]ToolMessage,
 	}
 
 	results := make([]work, len(calls))
-	// Run sequentially to keep things simple and predictable on low-end hardware.
-	// Switch to goroutines if latency becomes a problem.
 	for i, call := range calls {
 		msg, logLine := e.run(ctx, call)
 		results[i] = work{i, msg, logLine}
@@ -75,6 +73,13 @@ func (e *Executor) run(ctx context.Context, call ToolCall) (ToolMessage, string)
 			fmt.Sprintf("✗ %s — not found", call.Function.Name)
 	}
 
+	if e.registry.IsDenied(call.Function.Name) {
+		content := fmt.Sprintf("ERROR: tool %q denied by policy", call.Function.Name)
+		slog.Warn("Tool denied by policy", "name", call.Function.Name)
+		return ToolMessage{Role: "tool", ToolCallID: call.ID, Content: content},
+			fmt.Sprintf("✗ %s — denied", call.Function.Name)
+	}
+
 	tool, ok := e.registry.Get(call.Function.Name)
 	if !ok {
 		content := fmt.Sprintf("ERROR: unknown tool %q", call.Function.Name)
@@ -84,7 +89,6 @@ func (e *Executor) run(ctx context.Context, call ToolCall) (ToolMessage, string)
 	}
 
 	slog.Debug("Executing tool", "name", call.Function.Name, "args", string(call.Function.Arguments))
-
 	result := tool.Execute(ctx, call.Function.Arguments)
 
 	prefix := "✓"

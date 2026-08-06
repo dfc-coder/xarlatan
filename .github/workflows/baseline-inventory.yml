@@ -24,8 +24,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(find . -name '*_test.go' -type f | wc -l)" -eq 19
-          ! grep -R --exclude-dir=.git -n "github.com/local/assistant" .
+          test "$(find . -name '*_test.go' -type f | wc -l)" -ge 19
+          test -f internal/config/config_test.go
+          test -f internal/tools/policy_test.go
+          test -f cmd/assistant/main_test.go
+          ! grep -R --include='*.go' -n "github.com/local/assistant" cmd internal
+          ! grep -n "github.com/local/assistant" go.mod go.sum
           test -f LICENSE
           test -f docs/baseline/REPOSITORY_LAYOUT.md
           test -f docs/baseline/VALIDATION.md

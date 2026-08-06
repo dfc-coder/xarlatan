@@ -30,18 +30,8 @@ func TestFlow_TransitionsBetweenBasicNodes(t *testing.T) {
 		wantSteps  []string
 		wantIntent string
 	}{
-		{
-			name:       "direct path",
-			input:      "dime la hora",
-			wantSteps:  []string{"router", "response_composer", "finalizer"},
-			wantIntent: "",
-		},
-		{
-			name:       "planner path",
-			input:      "busca un restaurante cercano",
-			wantSteps:  []string{"router", "planner", "response_composer", "finalizer"},
-			wantIntent: "answer_direct",
-		},
+		{name: "direct path", input: "dime la hora", wantSteps: []string{"router", "response_composer", "finalizer"}, wantIntent: ""},
+		{name: "planner path", input: "busca un restaurante cercano", wantSteps: []string{"router", "planner", "response_composer", "finalizer"}, wantIntent: "answer_direct"},
 	}
 
 	for _, tc := range tests {
@@ -53,7 +43,6 @@ func TestFlow_TransitionsBetweenBasicNodes(t *testing.T) {
 				recordingNode{node: ResponseComposer{}, steps: &steps},
 				recordingNode{node: Finalizer{}, steps: &steps},
 			)
-
 			state, err := orch.Run(context.Background(), State{Input: tc.input})
 			if err != nil {
 				t.Fatalf("Run() error = %v", err)
@@ -62,10 +51,10 @@ func TestFlow_TransitionsBetweenBasicNodes(t *testing.T) {
 				t.Fatalf("steps = %v, want %v", steps, tc.wantSteps)
 			}
 			if !state.Done {
-				t.Fatalf("Done = false, want true")
+				t.Fatal("Done = false, want true")
 			}
 			if state.FinalResponse == "" {
-				t.Fatalf("FinalResponse is empty")
+				t.Fatal("FinalResponse is empty")
 			}
 			if got := state.Intent; got != tc.wantIntent {
 				t.Fatalf("Intent = %q, want %q", got, tc.wantIntent)
@@ -83,7 +72,6 @@ func TestFlow_SkipsToolExecutorWhenNoToolsArePending(t *testing.T) {
 		recordingNode{node: ToolExecutor{}, steps: &steps},
 		recordingNode{node: Finalizer{}, steps: &steps},
 	)
-
 	state, err := orch.Run(context.Background(), State{Input: "dime la hora"})
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -98,7 +86,7 @@ func TestFlow_SkipsToolExecutorWhenNoToolsArePending(t *testing.T) {
 
 func TestFlow_RunsToolExecutorWhenToolsArePending(t *testing.T) {
 	steps := make([]string, 0, 6)
-	r := tools.NewRegistry()
+	r := tools.NewRegistry(tools.AllowAllToolPolicy())
 	r.Register(echoTool{})
 	orch := New("router",
 		recordingNode{node: Router{}, steps: &steps},
@@ -106,7 +94,6 @@ func TestFlow_RunsToolExecutorWhenToolsArePending(t *testing.T) {
 		recordingNode{node: ToolExecutor{Executor: tools.NewExecutor(r)}, steps: &steps},
 		recordingNode{node: Finalizer{}, steps: &steps},
 	)
-
 	state, err := orch.Run(context.Background(), State{
 		Input: "dime algo",
 		ToolCalls: []tools.ToolCall{{
@@ -139,10 +126,7 @@ func TestFlow_AllowsInsertingNewNodeViaTransitionOverride(t *testing.T) {
 		recordingNode{node: ResponseComposer{}, steps: &steps},
 		recordingNode{node: MemoryUpdate{}, steps: &steps},
 		recordingNode{node: Finalizer{}, steps: &steps},
-	).WithTransitionOverrides(map[string]string{
-		"response_composer->finalizer": "memory_update",
-	})
-
+	).WithTransitionOverrides(map[string]string{"response_composer->finalizer": "memory_update"})
 	state, err := orch.Run(context.Background(), State{Input: "dime la hora"})
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)

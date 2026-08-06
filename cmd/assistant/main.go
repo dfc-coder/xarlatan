@@ -43,6 +43,10 @@ func main() {
 		slog.Error("config", "err", err)
 		os.Exit(1)
 	}
+	if err := cfg.Validate(); err != nil {
+		slog.Error("config validation", "err", err)
+		os.Exit(1)
+	}
 
 	transcriber, err := stt.New(cfg.STT, cfg.Audio.SampleRate)
 	if err != nil {
@@ -68,7 +72,11 @@ func main() {
 		history = memory.Compose(cfg.LLM.SystemPrompt, summary, nil)
 	}
 	if !*noTools {
-		registry = buildRegistry(cfg)
+		registry, err = buildRegistry(cfg)
+		if err != nil {
+			slog.Error("tools", "err", err)
+			os.Exit(1)
+		}
 		executor = tools.NewExecutor(registry)
 		slog.Info("tools enabled", "list", registry.Names())
 	}
@@ -191,22 +199,38 @@ func toLLMMessages(messages []tools.ToolMessage) []llm.Message {
 	return converted
 }
 
-// buildRegistry registers all tools. One line per tool — easy to add/remove.
-func buildRegistry(cfg *config.Config) *tools.Registry {
-	r := tools.NewRegistry()
-	fs := cfg.Tools.FSRoot
-	// Filesystem
-	r.Register(tools.FSRead{RootDir: fs})
-	r.Register(tools.FSWrite{RootDir: fs})
-	r.Register(tools.FSList{RootDir: fs})
-	r.Register(tools.FSDelete{RootDir: fs})
-	r.Register(tools.FSStat{RootDir: fs})
-	r.Register(tools.FSMkdir{RootDir: fs})
-	// Web — WebSearchConfig is shared between config and tools packages
-	ws := cfg.Tools.WebSearch
-	r.Register(&tools.WebSearch{Provider: ws.Provider, APIKey: ws.APIKey, BaseURL: ws.BaseURL})
-	r.Register(tools.WebFetch{})
-	return r
+// buildRegistry registers candidate tools through a configuration-derived policy.
+func buildRegistry(cfg *config.Config) (*tools.Registry, error) {
+	policy := tools.DefaultToolPolicy()
+	fsCfg := cfg.Tools.Filesystem
+	if fsCfg.Enabled {
+		policy = policy.WithAllowed("fs_read", "fs_list", "fs_stat")
+		if fsCfg.AllowMutations {
+			policy = policy.WithAllowed("fs_write", "fs_delete", "fs_mkdir")
+		}
+	}
+
+	r := tools.NewRegistry(policy)
+	candidates := []tools.Tool{
+		tools.FSRead{RootDir: fsCfg.Root},
+		tools.FSWrite{RootDir: fsCfg.Root},
+		tools.FSList{RootDir: fsCfg.Root},
+		tools.FSDelete{RootDir: fsCfg.Root},
+		tools.FSStat{RootDir: fsCfg.Root},
+		tools.FSMkdir{RootDir: fsCfg.Root},
+		&tools.WebSearch{
+			Provider: cfg.Tools.WebSearch.Provider,
+			APIKey:   cfg.Tools.WebSearch.APIKey,
+			BaseURL:  cfg.Tools.WebSearch.BaseURL,
+		},
+		tools.WebFetch{},
+	}
+	for _, candidate := range candidates {
+		if err := r.Register(candidate); err != nil && !tools.IsToolDenied(err) {
+			return nil, fmt.Errorf("registering tool %q: %w", candidate.Name(), err)
+		}
+	}
+	return r, nil
 }
 
 func setupLogger(level string) {
