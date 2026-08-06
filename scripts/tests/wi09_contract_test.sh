@@ -12,6 +12,7 @@ for file in \
   "$ROOT/scripts/beta_acceptance.sh" \
   "$ROOT/scripts/package_release.sh" \
   "$ROOT/scripts/download_models.sh" \
+  "$ROOT/scripts/collect_runtime_libs.sh" \
   "$ROOT/docs/BETA_RUNBOOK.md" \
   "$ROOT/docs/refactor/WI-09_SPEC.md" \
   "$ROOT/docs/refactor/WI-09_EVIDENCE.md" \
@@ -29,7 +30,10 @@ bash -n \
   "$ROOT/scripts/beta_acceptance.sh" \
   "$ROOT/scripts/package_release.sh" \
   "$ROOT/scripts/download_models.sh" \
-  "$ROOT/scripts/install.sh"
+  "$ROOT/scripts/collect_runtime_libs.sh" \
+  "$ROOT/scripts/install.sh" \
+  "$ROOT/scripts/uninstall.sh" \
+  "$ROOT/scripts/rollback.sh"
 
 assert_contains "$ROOT/Makefile" 'release-candidate:'
 assert_contains "$ROOT/Makefile" 'models: ## Download and validate default runtime models'
@@ -40,14 +44,19 @@ assert_contains "$ROOT/Makefile" 'EXPECTED_VERSION="v$(BUILD_VERSION)"'
 assert_contains "$ROOT/.github/workflows/release-candidate.yml" 'v*-beta.*'
 assert_contains "$ROOT/docs/BETA_RUNBOOK.md" 'dakota-fedora'
 assert_contains "$ROOT/docs/BETA_RUNBOOK.md" 'bash ./scripts/beta_acceptance.sh ./config.yaml'
-assert_not_contains "$ROOT/docs/BETA_RUNBOOK.md" 'bash ./scripts/beta_acceptance.sh /etc/xarlatan/config.yaml'
+assert_contains "$ROOT/docs/BETA_RUNBOOK.md" 'systemctl --user enable --now xarlatan'
+assert_not_contains "$ROOT/docs/BETA_RUNBOOK.md" 'systemctl enable --now xarlatan'
 assert_contains "$ROOT/scripts/beta_acceptance.sh" 'VOICE_PIPELINE'
 assert_contains "$ROOT/scripts/beta_acceptance.sh" 'NO_SPONTANEOUS_TURNS'
+assert_contains "$ROOT/scripts/beta_acceptance.sh" 'systemctl --user start xarlatan.service'
+assert_contains "$ROOT/scripts/beta_acceptance.sh" 'systemd user startup/stop'
 assert_contains "$ROOT/scripts/beta_acceptance.sh" 'Ask exactly one short question, then remain silent.'
 assert_contains "$ROOT/scripts/beta_acceptance.sh" 'no spontaneous post-playback turns'
 assert_contains "$ROOT/scripts/beta_acceptance.sh" 'REQUIRE_SERVICE="${REQUIRE_SERVICE:-1}"'
 assert_contains "$ROOT/scripts/beta_acceptance.sh" 'CONFIG_AUDIO_DEVICE'
 assert_contains "$ROOT/scripts/beta_acceptance.sh" 'The report contains no transcript'
+assert_contains "$ROOT/scripts/preflight.sh" 'env -u LD_LIBRARY_PATH'
+assert_contains "$ROOT/scripts/preflight.sh" 'PipeWire user session available'
 assert_contains "$ROOT/internal/audio/playback.go" 'guard.Wait(ctx)'
 assert_contains "$ROOT/internal/audio/rearm.go" 'defaultRearmCooldown  = 700 * time.Millisecond'
 assert_contains "$ROOT/internal/audio/rearm.go" 'defaultStableSilence  = 560 * time.Millisecond'
@@ -57,7 +66,8 @@ assert_contains "$ROOT/scripts/download_models.sh" 'Qwen/Qwen2.5-0.5B-Instruct-G
 assert_contains "$ROOT/scripts/download_models.sh" 'qwen2.5-0.5b-instruct-q4_k_m.gguf'
 assert_contains "$ROOT/scripts/download_models.sh" '74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db'
 assert_contains "$ROOT/scripts/download_models.sh" 'download_atomic'
-assert_contains "$ROOT/scripts/package_release.sh" 'download_models.sh'
+assert_contains "$ROOT/scripts/package_release.sh" 'collect_runtime_libs.sh'
+assert_contains "$ROOT/scripts/package_release.sh" '"$STAGE/$NAME/lib"'
 assert_contains "$ROOT/scripts/package_release.sh" 'BETA_RUNBOOK.md'
 assert_contains "$ROOT/scripts/install.sh" 'find "$DATA_DIR/models" -type d -exec chmod 0750 {} +'
 assert_contains "$ROOT/scripts/install.sh" 'find "$DATA_DIR/models" -type f -exec chmod 0640 {} +'
