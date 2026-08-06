@@ -37,5 +37,8 @@ while read -r soname arrow resolved _rest; do
   copied=$((copied + 1))
 done <<<"$ldd_output"
 
-printf 'Collected %d non-system runtime librar%s from %s\n' \
-  "$copied" "$([[ "$copied" -eq 1 ]] && printf y || printf ies)" "$BINARY"
+if [[ "$copied" -eq 1 ]]; then
+  printf 'Collected 1 non-system runtime library from %s\n' "$BINARY"
+else
+  printf 'Collected %d non-system runtime libraries from %s\n' "$copied" "$BINARY"
+fi
