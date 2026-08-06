@@ -98,7 +98,8 @@ jobs:
 
       - name: Verify shell and release contracts
         run: |
-          shellcheck \
+          # Contract tests intentionally search for unexpanded Make and shell syntax.
+          shellcheck --exclude=SC2016 \
             scripts/install.sh scripts/uninstall.sh scripts/rollback.sh \
             scripts/download_models.sh scripts/preflight.sh \
             scripts/beta_acceptance.sh scripts/package_release.sh \
