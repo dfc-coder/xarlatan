@@ -11,7 +11,8 @@ Primera beta candidata después del refactor operativo WI-00..WI-09.
 - HTTP compartido con bloqueo SSRF de loopback, redes privadas, link-local, metadata y redirects inseguros;
 - servicio systemd no root, sin capabilities, con filesystem de solo lectura salvo `/var/lib/xarlatan`;
 - dispositivo del servicio limitado a ALSA;
-- herramientas deshabilitadas en el servicio beta mediante `--no-tools`.
+- herramientas deshabilitadas en el servicio beta mediante `--no-tools`;
+- el LLM beta se descarga a un archivo temporal y se valida mediante SHA-256 antes de instalarlo.
 
 ### Arquitectura
 
@@ -31,7 +32,15 @@ Primera beta candidata después del refactor operativo WI-00..WI-09.
 - rollback root-only en `/var/backups/xarlatan`;
 - uninstall y purge explícitos;
 - paquete determinista con SHA-256;
-- preflight y aceptación física con reporte.
+- preflight y aceptación física con reporte;
+- `make models` ejecuta un único ciclo de descarga y validación.
+
+### Hotfix de primera ejecución
+
+- se reemplazó el repositorio restringido `google/gemma-3-270m-it-GGUF`, que devolvía HTTP 401, por el repositorio público `Qwen/Qwen2.5-0.5B-Instruct-GGUF`;
+- el modelo por defecto es `qwen2.5-0.5b-instruct-q4_k_m.gguf`;
+- los archivos vacíos, parciales o con checksum incorrecto se rechazan;
+- el runbook ejecuta los scripts con `bash` para no depender del bit ejecutable del checkout.
 
 ### Cambios incompatibles
 
@@ -42,7 +51,8 @@ Primera beta candidata después del refactor operativo WI-00..WI-09.
 - `--reset` fue eliminado porque la memoria sigue siendo volátil;
 - los targets `dev-up`, `dev-down`, `dev-shell`, `dev-rebuild` y `dev-logs` fueron eliminados porque no existía `compose.yml`;
 - el servicio inicia con `--no-tools`; las tools deben habilitarse deliberadamente fuera del gate beta;
-- los paths de configuración de producción son absolutos.
+- los paths de configuración de producción son absolutos;
+- una configuración beta creada antes del hotfix debe cambiar el nombre del modelo Gemma por el modelo Qwen indicado en el runbook.
 
 ### Límites conocidos
 
@@ -53,7 +63,7 @@ Primera beta candidata después del refactor operativo WI-00..WI-09.
 - la memoria no persiste entre reinicios;
 - sherpa-onnx offline no puede interrumpir una llamada CGo ya iniciada;
 - el servicio de sistema puede requerir un dispositivo ALSA explícito en equipos donde `default` depende de la sesión PipeWire del usuario;
-- el modelo Gemma 3 270M se utiliza como smoke ligero, no como modelo de máxima calidad.
+- Qwen2.5 0.5B se utiliza como smoke ligero, no como modelo de máxima calidad.
 
 ### Aceptación
 

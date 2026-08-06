@@ -16,7 +16,7 @@ stt:
 llm:
   mode: "managed"
   server_binary: "/usr/local/bin/llama-server"
-  model: "/var/lib/xarlatan/models/llm/gemma-3-270m-it-Q4_K_M.gguf"
+  model: "/var/lib/xarlatan/models/llm/qwen2.5-0.5b-instruct-q4_k_m.gguf"
   host: "127.0.0.1"
   port: 8080
   context_size: 4096

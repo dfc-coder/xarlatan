@@ -19,10 +19,11 @@ install -m755 "$ROOT/bin/calibrate" "$STAGE/$NAME/bin/calibrate"
 install -m755 "$ROOT/bin/llama-server" "$STAGE/$NAME/bin/llama-server"
 install -m644 "$ROOT/packaging/config.yaml" "$STAGE/$NAME/packaging/config.yaml"
 install -m644 "$ROOT/packaging/systemd/xarlatan.service" "$STAGE/$NAME/packaging/systemd/xarlatan.service"
-for script in install.sh uninstall.sh rollback.sh preflight.sh beta_acceptance.sh; do
+for script in install.sh uninstall.sh rollback.sh download_models.sh preflight.sh beta_acceptance.sh; do
   install -m755 "$ROOT/scripts/$script" "$STAGE/$NAME/scripts/$script"
 done
 install -m644 "$ROOT/README.md" "$STAGE/$NAME/README.md"
+install -m644 "$ROOT/docs/BETA_RUNBOOK.md" "$STAGE/$NAME/BETA_RUNBOOK.md"
 install -m644 "$ROOT/CHANGELOG.md" "$STAGE/$NAME/CHANGELOG.md"
 install -m644 "$ROOT/LICENSE" "$STAGE/$NAME/LICENSE"
 

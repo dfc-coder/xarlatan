@@ -5,11 +5,13 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 fail() { printf 'WI-09 contract failed: %s\n' "$*" >&2; exit 1; }
 assert_file() { [[ -f "$1" ]] || fail "missing file: $1"; }
 assert_contains() { grep -Fq -- "$2" "$1" || fail "$1 missing: $2"; }
+assert_not_contains() { ! grep -Fq -- "$2" "$1" || fail "$1 unexpectedly contains: $2"; }
 
 for file in \
   "$ROOT/scripts/preflight.sh" \
   "$ROOT/scripts/beta_acceptance.sh" \
   "$ROOT/scripts/package_release.sh" \
+  "$ROOT/scripts/download_models.sh" \
   "$ROOT/docs/BETA_RUNBOOK.md" \
   "$ROOT/docs/refactor/WI-09_SPEC.md" \
   "$ROOT/docs/refactor/WI-09_EVIDENCE.md" \
@@ -17,14 +19,32 @@ for file in \
   assert_file "$file"
 done
 
-bash -n "$ROOT/scripts/preflight.sh" "$ROOT/scripts/beta_acceptance.sh" "$ROOT/scripts/package_release.sh"
+bash -n \
+  "$ROOT/scripts/preflight.sh" \
+  "$ROOT/scripts/beta_acceptance.sh" \
+  "$ROOT/scripts/package_release.sh" \
+  "$ROOT/scripts/download_models.sh"
+
 assert_contains "$ROOT/Makefile" 'release-candidate:'
+assert_contains "$ROOT/Makefile" 'models: ## Download and validate default runtime models'
+assert_not_contains "$ROOT/Makefile" 'models: models/stt models/tts models/llm'
 assert_contains "$ROOT/.github/workflows/release-candidate.yml" 'v*-beta.*'
 assert_contains "$ROOT/docs/BETA_RUNBOOK.md" 'dakota-fedora'
+assert_contains "$ROOT/docs/BETA_RUNBOOK.md" 'bash ./scripts/beta_acceptance.sh'
 assert_contains "$ROOT/scripts/beta_acceptance.sh" 'VOICE_PIPELINE'
 assert_contains "$ROOT/scripts/beta_acceptance.sh" 'REQUIRE_SERVICE="${REQUIRE_SERVICE:-1}"'
 assert_contains "$ROOT/scripts/beta_acceptance.sh" 'CONFIG_AUDIO_DEVICE'
 assert_contains "$ROOT/scripts/beta_acceptance.sh" 'The report contains no transcript'
+assert_contains "$ROOT/scripts/download_models.sh" 'Qwen/Qwen2.5-0.5B-Instruct-GGUF'
+assert_contains "$ROOT/scripts/download_models.sh" 'qwen2.5-0.5b-instruct-q4_k_m.gguf'
+assert_contains "$ROOT/scripts/download_models.sh" '74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db'
+assert_contains "$ROOT/scripts/download_models.sh" 'download_atomic'
+assert_contains "$ROOT/scripts/package_release.sh" 'download_models.sh'
+assert_contains "$ROOT/scripts/package_release.sh" 'BETA_RUNBOOK.md'
+assert_contains "$ROOT/config.yaml" 'qwen2.5-0.5b-instruct-q4_k_m.gguf'
+assert_contains "$ROOT/packaging/config.yaml" 'qwen2.5-0.5b-instruct-q4_k_m.gguf'
+assert_not_contains "$ROOT/config.yaml" 'gemma-3-270m-it-Q4_K_M.gguf'
+assert_not_contains "$ROOT/packaging/config.yaml" 'gemma-3-270m-it-Q4_K_M.gguf'
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
