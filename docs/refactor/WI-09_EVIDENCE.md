@@ -2,7 +2,7 @@
 
 ## Estado
 
-**RC integrado / aceptación física fallida antes del pipeline / hotfix en curso.**
+**RC y hotfix integrados / repetición de aceptación física pendiente.**
 
 REL-003 no se marca aprobado hasta adjuntar un reporte `PASS` generado por `scripts/beta_acceptance.sh` en `dakota-fedora`.
 
@@ -10,11 +10,11 @@ REL-003 no se marca aprobado hasta adjuntar un reporte `PASS` generado por `scri
 
 - Issue: #12.
 - RC inicial: PR #31, merge `54734affb99a48f2c3b7c3d32ce64740849d753d`.
-- Hotfix de primera ejecución: PR #33.
+- Hotfix de primera ejecución: PR #33, merge `d0ae37212bf9e01c11476a54bcdf0da42d081c8f`.
 - Especificación: `docs/refactor/WI-09_SPEC.md`.
 - Runbook: `docs/BETA_RUNBOOK.md`.
 - Changelog: `CHANGELOG.md`.
-- Requisitos: REL-001..REL-008.
+- Requisitos: REL-001..REL-009.
 
 ## Contratos
 
@@ -50,6 +50,10 @@ systemd-analyze security --offline=yes --threshold=50 packaging/systemd/xarlatan
 - exposición systemd: 4,2/10, clasificación `OK`;
 - preflight con fakes: PASS;
 - paquete repetido con `SOURCE_DATE_EPOCH=0`: mismo SHA-256;
+- descarga LLM fake con checksum correcto: PASS;
+- archivo corrupto reemplazado: PASS;
+- modelo personalizado sin checksum rechazado: PASS;
+- package contiene descargador y runbook: PASS;
 - no se encontró un issue P0 independiente abierto.
 
 GitHub Actions no registró runs automáticos para los commits escritos mediante el conector. No se declara un run verde inexistente.
@@ -71,15 +75,17 @@ Resultados:
 
 La prueba no valida ni invalida todavía ALSA, STT, llama-server, TTS o systemd en ejecución. Falló antes de alcanzar esos gates.
 
-## Hotfix de primera ejecución
+## Hotfix integrado
 
-1. Se reemplaza el repositorio restringido por `Qwen/Qwen2.5-0.5B-Instruct-GGUF`.
-2. El archivo por defecto pasa a ser `qwen2.5-0.5b-instruct-q4_k_m.gguf`.
-3. Se valida SHA-256 `74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db`.
-4. Los archivos vacíos, parciales o corruptos no se consideran instalados.
-5. `make models` deja de usar directorios como targets artificiales.
-6. El runbook usa `bash ./scripts/...` para no depender del bit ejecutable del checkout.
-7. La configuración local y la instalada apuntan al nuevo modelo.
+1. Repositorio público `Qwen/Qwen2.5-0.5B-Instruct-GGUF`.
+2. Archivo `qwen2.5-0.5b-instruct-q4_k_m.gguf`.
+3. SHA-256 obligatorio `74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db`.
+4. Descarga temporal, verificación y movimiento atómico.
+5. Archivos vacíos, parciales o corruptos no se consideran instalados.
+6. `make models` usa un único target real.
+7. Los scripts operativos recuperaron modo ejecutable y el runbook usa `bash`.
+8. Configuración local e instalada apuntan al nuevo modelo.
+9. El paquete beta incluye descargador y runbook.
 
 ## Repetición física requerida
 
@@ -89,7 +95,7 @@ git switch main
 git pull --ff-only
 rm -f models/llm/gemma-3-270m-it-Q4_K_M.gguf
 make models
-sudo make install
+sudo make install VERSION=v0.4.0-beta.1
 sudo sed -i \
   's#gemma-3-270m-it-Q4_K_M.gguf#qwen2.5-0.5b-instruct-q4_k_m.gguf#' \
   /etc/xarlatan/config.yaml
