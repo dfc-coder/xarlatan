@@ -10,22 +10,14 @@ mkdir -p "$MODEL_DIR"/{stt,tts,llm}
 
 green() { printf '\033[32m%s\033[0m\n' "$*"; }
 cyan()  { printf '\033[36m%s\033[0m\n' "$*"; }
-warn()  { printf '\033[33mWARN: %s\033[0m\n' "$*" >&2; }
 die()   { printf '\033[31mERROR: %s\033[0m\n' "$*" >&2; exit 1; }
-
-verify_sha256() {
-    local file="$1"
-    local expected="$2"
-    local actual
-    actual="$(sha256sum "$file" | awk '{print $1}')"
-    [[ "$actual" == "$expected" ]]
-}
 
 download_atomic() {
     local url="$1"
     local destination="$2"
     local expected_sha256="$3"
     local tmp_file
+    local actual_sha256
     tmp_file="$(mktemp "${destination}.part.XXXXXX")"
 
     if ! curl -fL --retry 3 --retry-delay 2 --progress-bar "$url" -o "$tmp_file"; then
@@ -36,7 +28,9 @@ download_atomic() {
         rm -f "$tmp_file"
         die "downloaded file is empty: $url"
     fi
-    if [[ -n "$expected_sha256" ]] && ! verify_sha256 "$tmp_file" "$expected_sha256"; then
+
+    actual_sha256="$(sha256sum "$tmp_file" | awk '{print $1}')"
+    if [[ "$actual_sha256" != "$expected_sha256" ]]; then
         rm -f "$tmp_file"
         die "checksum mismatch: $(basename "$destination")"
     fi
@@ -109,10 +103,15 @@ if [[ "$LLM_REPO" == "$DEFAULT_LLM_REPO" && "$LLM_FILE" == "$DEFAULT_LLM_FILE" ]
     LLM_SHA256="${LLM_SHA256:-$DEFAULT_LLM_SHA256}"
 else
     LLM_SHA256="${LLM_SHA256:-}"
-    [[ -n "$LLM_SHA256" ]] || warn "custom LLM has no checksum; set LLM_SHA256 to verify it"
+    [[ -n "$LLM_SHA256" ]] || die "custom LLM requires LLM_SHA256"
 fi
 
-if [[ -s "$LLM_PATH" ]] && { [[ -z "$LLM_SHA256" ]] || verify_sha256 "$LLM_PATH" "$LLM_SHA256"; }; then
+actual_sha256=""
+if [[ -s "$LLM_PATH" ]]; then
+    actual_sha256="$(sha256sum "$LLM_PATH" | awk '{print $1}')"
+fi
+
+if [[ "$actual_sha256" == "$LLM_SHA256" ]]; then
     green "✓ LLM model already present and valid"
 else
     rm -f "$LLM_PATH"
