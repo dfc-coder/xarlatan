@@ -47,7 +47,7 @@ resolve_target_identity() {
     die "run through sudo from the desktop user or set XARLATAN_TARGET_USER"
   fi
   id "$TARGET_USER" >/dev/null 2>&1 || die "target desktop user does not exist: $TARGET_USER"
-  TARGET_GROUP="${TARGET_GROUP:-$(id -gn "$TARGET_USER")}" 
+  TARGET_GROUP="${TARGET_GROUP:-$(id -gn "$TARGET_USER")}"
   TARGET_UID="$(id -u "$TARGET_USER")"
 }
 
@@ -58,7 +58,7 @@ require_artifacts() {
   done
   [[ -f "$ROOT/packaging/config.yaml" ]] || die "missing packaging/config.yaml"
   [[ -f "$ROOT/packaging/systemd/xarlatan.service" ]] || die "missing systemd user unit"
-  [[ -x "$ROOT/scripts/collect_runtime_libs.sh" ]] || die "missing runtime library collector"
+  [[ -f "$ROOT/scripts/collect_runtime_libs.sh" ]] || die "missing runtime library collector"
 }
 
 backup_one() {
