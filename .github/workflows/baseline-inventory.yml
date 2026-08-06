@@ -56,6 +56,7 @@ jobs:
           test -f scripts/preflight.sh
           test -f scripts/beta_acceptance.sh
           test -f scripts/package_release.sh
+          test -f scripts/collect_runtime_libs.sh
           test -f packaging/config.yaml
           test -f packaging/systemd/xarlatan.service
           ! grep -R --include='*.go' -n "github.com/local/assistant" cmd internal

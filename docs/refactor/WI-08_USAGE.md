@@ -2,95 +2,97 @@
 
 ## Preparación
 
-Construir como usuario normal:
+Construir y descargar modelos como usuario normal:
 
 ```bash
-make all
+make all VERSION=v0.4.0-beta.1
 make models
-```
-
-Validar los artefactos:
-
-```bash
 ./bin/assistant -version
-test -x ./bin/calibrate
-test -x ./bin/llama-server
 ```
 
 ## Instalación
 
 ```bash
-sudo make install
+sudo make install VERSION=v0.4.0-beta.1
+systemctl --user daemon-reload
 ```
 
-La instalación no habilita ni inicia el servicio. Conserva la configuración existente y crea un snapshot del estado anterior en `/var/backups/xarlatan`.
+El instalador obtiene el usuario objetivo desde `SUDO_USER`, conserva la configuración existente y crea un snapshot en `/var/backups/xarlatan`.
 
-Revisar:
+Instala:
+
+```text
+/usr/local/bin/xarlatan
+/usr/local/bin/xarlatan-calibrate
+/usr/local/bin/llama-server
+/usr/local/lib/xarlatan/
+/etc/ld.so.conf.d/xarlatan.conf
+/etc/xarlatan/config.yaml
+/etc/systemd/user/xarlatan.service
+/var/lib/xarlatan/models/
+```
+
+## Verificación
 
 ```bash
-sudoedit /etc/xarlatan/config.yaml
-sudo systemd-analyze verify /etc/systemd/system/xarlatan.service
-sudo systemd-analyze security --offline=yes /etc/systemd/system/xarlatan.service
+env -u LD_LIBRARY_PATH /usr/local/bin/xarlatan -version
+env -u LD_LIBRARY_PATH ldd /usr/local/bin/xarlatan
+
+test -r /etc/xarlatan/config.yaml
+test -r /var/lib/xarlatan/models/stt/sherpa-onnx-whisper-base/base-encoder.onnx
+test -r /var/lib/xarlatan/models/tts/vits-piper-es_ES-davefx-medium/es_ES-davefx-medium.onnx
+test -r /var/lib/xarlatan/models/llm/qwen2.5-0.5b-instruct-q4_k_m.gguf
+
+systemd-analyze verify /etc/systemd/user/xarlatan.service
 ```
 
-Confirmar que los modelos configurados existen:
-
-```bash
-sudo -u xarlatan test -r /var/lib/xarlatan/models/stt/sherpa-onnx-whisper-base/base-encoder.onnx
-sudo -u xarlatan test -r /var/lib/xarlatan/models/tts/vits-piper-es_ES-davefx-medium/es_ES-davefx-medium.onnx
-sudo -u xarlatan test -r /var/lib/xarlatan/models/llm/gemma-3-270m-it-Q4_K_M.gguf
-```
+`ldd` no debe mostrar ninguna dependencia `not found`.
 
 ## Audio
 
-Un servicio del sistema no hereda la sesión PipeWire del usuario. Enumerar dispositivos ALSA:
+Xarlatan utiliza la sesión PipeWire del usuario de escritorio:
 
 ```bash
-arecord -L
-aplay -L
+test -S "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/pipewire-0"
+arecord -D default -f S16_LE -r 16000 -c 1 -d 3 /tmp/xarlatan-mic.wav
+aplay -D default /tmp/xarlatan-mic.wav
+rm -f /tmp/xarlatan-mic.wav
 ```
 
-Probar el dispositivo elegido antes de iniciar Xarlatan:
-
-```bash
-arecord -D plughw:CARD=<card>,DEV=<dev> -f S16_LE -r 16000 -c 1 -d 3 /tmp/xarlatan-mic.wav
-aplay -D plughw:CARD=<card>,DEV=<dev> /tmp/xarlatan-mic.wav
-```
-
-Configurar el mismo valor en `audio.device`.
+No debe ejecutarse como el usuario de sistema legacy `xarlatan`; ese contexto no puede acceder al dispositivo `default` de PipeWire.
 
 ## Inicio
 
 ```bash
-sudo systemctl enable --now xarlatan
-systemctl status xarlatan --no-pager
-journalctl -u xarlatan -f
+systemctl --user enable --now xarlatan
+systemctl --user status xarlatan --no-pager
+journalctl --user -u xarlatan -f
 ```
 
-La unidad arranca con `--no-tools`. Para habilitar tools hay que editar explícitamente la unidad y revisar antes `ToolPolicy`, filesystem sandbox y configuración de red.
+La unidad se inicia al abrir la sesión del usuario y arranca con `--no-tools`.
 
 ## Diagnóstico
 
 ```bash
-sudo -u xarlatan /usr/local/bin/xarlatan -version
-sudo -u xarlatan test -r /etc/xarlatan/config.yaml
-sudo journalctl -u xarlatan -b --no-pager
-sudo systemctl show xarlatan -p User -p Group -p ReadWritePaths -p NoNewPrivileges
+systemctl --user restart xarlatan
+systemctl --user status xarlatan --no-pager -l
+journalctl --user -u xarlatan -b --no-pager
+systemctl --user show xarlatan -p ReadWritePaths -p NoNewPrivileges
 ```
 
 Errores frecuentes:
 
-- `config validation`: revisar paths absolutos y permisos;
-- `llm server start/readiness`: verificar binario, modelo, puerto y memoria;
-- `stt` o `tts`: verificar modelos sherpa y archivos de tokens/data;
-- `arecord`/`aplay`: usar un dispositivo ALSA accesible al grupo `audio`;
-- reinicios repetidos: detener el servicio y ejecutar foreground para aislar la etapa.
+- `shared libraries ... not found`: ejecutar `sudo ldconfig` y revisar `/usr/local/lib/xarlatan`;
+- `Host is down`: comprobar que se usa `systemctl --user` y que PipeWire está activo;
+- `config validation`: revisar paths y permisos;
+- `llm server start/readiness`: verificar modelo, puerto y memoria;
+- `stt` o `tts`: verificar modelos y archivos de tokens/data.
 
 ## Foreground de recuperación
 
 ```bash
-sudo systemctl stop xarlatan
-sudo -u xarlatan /usr/local/bin/xarlatan \
+systemctl --user stop xarlatan
+/usr/local/bin/xarlatan \
   -config /etc/xarlatan/config.yaml \
   -no-tools \
   -log debug
@@ -98,15 +100,11 @@ sudo -u xarlatan /usr/local/bin/xarlatan \
 
 ## Rollback
 
-Restaurar binarios y unidad previos:
-
 ```bash
+systemctl --user disable --now xarlatan 2>/dev/null || true
 sudo make rollback
-sudo systemctl daemon-reload
-sudo systemctl restart xarlatan
+systemctl --user daemon-reload
 ```
-
-La configuración y los modelos no se modifican durante rollback.
 
 ## Desinstalación
 

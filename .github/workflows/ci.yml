@@ -98,20 +98,22 @@ jobs:
 
       - name: Verify shell and release contracts
         run: |
-          shellcheck \
+          # Contract tests intentionally search for unexpanded Make and shell syntax.
+          shellcheck --exclude=SC2016 \
             scripts/install.sh scripts/uninstall.sh scripts/rollback.sh \
             scripts/download_models.sh scripts/preflight.sh \
             scripts/beta_acceptance.sh scripts/package_release.sh \
+            scripts/collect_runtime_libs.sh \
             scripts/tests/wi08_contract_test.sh scripts/tests/wi09_contract_test.sh
           bash scripts/tests/wi08_contract_test.sh
           bash scripts/tests/wi09_contract_test.sh
 
-      - name: Verify systemd unit and hardening
+      - name: Verify systemd user unit and hardening
         run: |
           sudo install -Dm755 /bin/true /usr/local/bin/xarlatan
-          sudo systemd-analyze verify packaging/systemd/xarlatan.service
+          systemd-analyze verify packaging/systemd/xarlatan.service
           # systemd-analyze uses a 0..100 percentage threshold; 50 corresponds to 5.0/10.
-          sudo systemd-analyze security --offline=yes --threshold=50 packaging/systemd/xarlatan.service
+          systemd-analyze security --offline=yes --threshold=50 packaging/systemd/xarlatan.service
 
       - name: Upload coverage
         uses: actions/upload-artifact@v4

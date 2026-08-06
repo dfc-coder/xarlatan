@@ -13,13 +13,18 @@ for artifact in assistant calibrate llama-server; do
   [[ -x "$ROOT/bin/$artifact" ]] || { printf 'missing bin/%s; run make all VERSION=%s\n' "$artifact" "$VERSION" >&2; exit 1; }
 done
 
-mkdir -p "$STAGE/$NAME/bin" "$STAGE/$NAME/packaging/systemd" "$STAGE/$NAME/scripts"
+mkdir -p \
+  "$STAGE/$NAME/bin" \
+  "$STAGE/$NAME/lib" \
+  "$STAGE/$NAME/packaging/systemd" \
+  "$STAGE/$NAME/scripts"
 install -m755 "$ROOT/bin/assistant" "$STAGE/$NAME/bin/assistant"
 install -m755 "$ROOT/bin/calibrate" "$STAGE/$NAME/bin/calibrate"
 install -m755 "$ROOT/bin/llama-server" "$STAGE/$NAME/bin/llama-server"
+bash "$ROOT/scripts/collect_runtime_libs.sh" "$ROOT/bin/assistant" "$STAGE/$NAME/lib"
 install -m644 "$ROOT/packaging/config.yaml" "$STAGE/$NAME/packaging/config.yaml"
 install -m644 "$ROOT/packaging/systemd/xarlatan.service" "$STAGE/$NAME/packaging/systemd/xarlatan.service"
-for script in install.sh uninstall.sh rollback.sh download_models.sh preflight.sh beta_acceptance.sh; do
+for script in install.sh uninstall.sh rollback.sh download_models.sh preflight.sh beta_acceptance.sh collect_runtime_libs.sh; do
   install -m755 "$ROOT/scripts/$script" "$STAGE/$NAME/scripts/$script"
 done
 install -m644 "$ROOT/README.md" "$STAGE/$NAME/README.md"
@@ -27,9 +32,11 @@ install -m644 "$ROOT/docs/BETA_RUNBOOK.md" "$STAGE/$NAME/BETA_RUNBOOK.md"
 install -m644 "$ROOT/CHANGELOG.md" "$STAGE/$NAME/CHANGELOG.md"
 install -m644 "$ROOT/LICENSE" "$STAGE/$NAME/LICENSE"
 
+SUMS_TMP="$STAGE/internal-SHA256SUMS"
 (
   cd "$STAGE/$NAME"
-  find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
+  find . -type f -print0 | sort -z | xargs -0 sha256sum > "$SUMS_TMP"
+  mv "$SUMS_TMP" SHA256SUMS
 )
 
 mkdir -p "$DIST"

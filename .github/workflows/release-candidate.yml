@@ -54,16 +54,18 @@ jobs:
 
       - name: Verify operational contracts
         run: |
-          shellcheck \
+          # Contract tests intentionally search for unexpanded Make and shell syntax.
+          shellcheck --exclude=SC2016 \
             scripts/install.sh scripts/uninstall.sh scripts/rollback.sh \
             scripts/download_models.sh scripts/preflight.sh \
             scripts/beta_acceptance.sh scripts/package_release.sh \
+            scripts/collect_runtime_libs.sh \
             scripts/tests/wi08_contract_test.sh scripts/tests/wi09_contract_test.sh
           bash scripts/tests/wi08_contract_test.sh
           bash scripts/tests/wi09_contract_test.sh
           sudo install -Dm755 /bin/true /usr/local/bin/xarlatan
-          sudo systemd-analyze verify packaging/systemd/xarlatan.service
-          sudo systemd-analyze security --offline=yes --threshold=50 packaging/systemd/xarlatan.service
+          systemd-analyze verify packaging/systemd/xarlatan.service
+          systemd-analyze security --offline=yes --threshold=50 packaging/systemd/xarlatan.service
 
       - name: Build full candidate
         run: make clean-all all VERSION="$VERSION"
@@ -74,8 +76,13 @@ jobs:
       - name: Package candidate
         run: make release-candidate VERSION="$VERSION"
 
-      - name: Verify archive checksum
-        run: cd dist && sha256sum -c SHA256SUMS
+      - name: Verify archive checksum and bundled libraries
+        run: |
+          cd dist
+          sha256sum -c SHA256SUMS
+          archive="$(find . -maxdepth 1 -name '*.tar.gz' -print -quit)"
+          test -n "$archive"
+          tar -tzf "$archive" | grep -q '/lib/libsherpa-onnx-c-api.so$'
 
       - name: Upload candidate
         uses: actions/upload-artifact@v4

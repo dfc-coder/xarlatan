@@ -22,11 +22,12 @@ sudo dnf install -y \
   golang alsa-utils alsa-lib-devel ShellCheck
 ```
 
-Comprueba los dispositivos visibles:
+Comprueba la sesión de audio del usuario:
 
 ```bash
 arecord -L
 aplay -L
+test -S "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/pipewire-0"
 ```
 
 ## 3. Construir el candidato
@@ -56,9 +57,11 @@ La salida exacta debe ser:
 assistant v0.4.0-beta.1
 ```
 
-El Makefile elimina un prefijo `v` antes de inyectar la versión y el binario lo presenta una sola vez. `make build` fuerza la reconstrucción de los binarios Go.
-
 ## 4. Descargar y validar modelos
+
+```bash
+make models
+```
 
 La configuración beta utiliza:
 
@@ -68,72 +71,60 @@ models/tts/vits-piper-es_ES-davefx-medium/
 models/llm/qwen2.5-0.5b-instruct-q4_k_m.gguf
 ```
 
-```bash
-make models
-```
+El LLM se valida mediante SHA-256 antes de moverse a su ruta final.
 
-El LLM se descarga desde `Qwen/Qwen2.5-0.5B-Instruct-GGUF`, se valida mediante SHA-256 y solo después se mueve a su ruta final.
-
-Para limpiar el intento Gemma anterior:
-
-```bash
-rm -f models/llm/gemma-3-270m-it-Q4_K_M.gguf
-```
-
-## 5. Preflight local
-
-```bash
-EXPECTED_VERSION=v0.4.0-beta.1 \
-XARLATAN_BIN=./bin/assistant \
-LLAMA_SERVER_BIN=./bin/llama-server \
-bash ./scripts/preflight.sh ./config.yaml
-```
-
-No continúes si aparece un `FAIL`.
-
-## 6. Instalar sin habilitar el servicio
-
-Después de construir como usuario normal:
+## 5. Instalar sin habilitar el servicio
 
 ```bash
 sudo bash ./scripts/install.sh
-sudo systemctl daemon-reload
+systemctl --user daemon-reload
 ```
 
-La instalación preserva una configuración existente. Corrige una configuración creada antes del hotfix Qwen:
+La instalación:
+
+- copia los binarios a `/usr/local/bin`;
+- copia las dependencias CGo no pertenecientes al sistema a `/usr/local/lib/xarlatan`;
+- registra esa ruta en `/etc/ld.so.conf.d/xarlatan.conf`;
+- instala la unidad en `/etc/systemd/user/xarlatan.service`;
+- elimina la unidad legacy `/etc/systemd/system/xarlatan.service`;
+- conserva configuración y modelos en `/etc/xarlatan` y `/var/lib/xarlatan`;
+- asigna acceso al usuario de escritorio que ejecutó `sudo`.
+
+Verifica que el binario ya no dependa del entorno del shell:
 
 ```bash
-sudo sed -i \
-  's#gemma-3-270m-it-Q4_K_M.gguf#qwen2.5-0.5b-instruct-q4_k_m.gguf#' \
-  /etc/xarlatan/config.yaml
+env -u LD_LIBRARY_PATH /usr/local/bin/xarlatan -version
+env -u LD_LIBRARY_PATH ldd /usr/local/bin/xarlatan | grep 'not found' && exit 1 || true
 ```
 
-Verifica binario, configuración y permisos desde las identidades correctas:
+Verifica acceso y ownership:
 
 ```bash
-/usr/local/bin/xarlatan -version
-sudo grep -A5 '^llm:' /etc/xarlatan/config.yaml
-sudo -u xarlatan test -r /etc/xarlatan/config.yaml
-sudo -u xarlatan test -r \
-  /var/lib/xarlatan/models/llm/qwen2.5-0.5b-instruct-q4_k_m.gguf
+test -r /etc/xarlatan/config.yaml && echo 'config readable'
+test -r /var/lib/xarlatan/models/llm/qwen2.5-0.5b-instruct-q4_k_m.gguf \
+  && echo 'LLM readable'
+
 sudo stat -c '%U:%G %a %n' \
   /etc/xarlatan/config.yaml \
-  /var/lib/xarlatan/models/llm/qwen2.5-0.5b-instruct-q4_k_m.gguf
+  /var/lib/xarlatan/models/llm/qwen2.5-0.5b-instruct-q4_k_m.gguf \
+  /etc/systemd/user/xarlatan.service \
+  /etc/ld.so.conf.d/xarlatan.conf
 ```
 
-Resultados esperados:
+En `dakota-fedora`, la configuración debe pertenecer a `root:dakota` y los modelos a `dakota:dakota`, ambos sin acceso público.
 
-```text
-assistant v0.4.0-beta.1
-root:xarlatan 640 /etc/xarlatan/config.yaml
-xarlatan:xarlatan 640 /var/lib/xarlatan/models/llm/qwen2.5-0.5b-instruct-q4_k_m.gguf
+## 6. Preflight instalado
+
+```bash
+EXPECTED_VERSION=v0.4.0-beta.1 \
+XARLATAN_BIN=/usr/local/bin/xarlatan \
+LLAMA_SERVER_BIN=/usr/local/bin/llama-server \
+bash ./scripts/preflight.sh ./config.yaml
 ```
 
-Que `dakota` no pueda leer directamente `/etc/xarlatan` o `/var/lib/xarlatan/models` es deliberado. No deben abrirse esos archivos a todos los usuarios para ejecutar la prueba.
+No continúes si aparece un `FAIL`. El preflight comprueba explícitamente el binario sin `LD_LIBRARY_PATH` y la sesión PipeWire del usuario.
 
 ## 7. Ejecutar la aceptación completa
-
-La interacción foreground usa la configuración y los modelos legibles del checkout. El mismo script inicia por separado el servicio instalado, que usa `/etc/xarlatan/config.yaml` y `/var/lib/xarlatan/models` como usuario `xarlatan`.
 
 ```bash
 EXPECTED_VERSION=v0.4.0-beta.1 \
@@ -141,78 +132,84 @@ AUDIO_DEVICE=default \
 bash ./scripts/beta_acceptance.sh ./config.yaml
 ```
 
-El script exige para un `PASS`:
+El script exige:
 
-1. preflight local con la versión y modelos correctos;
+1. preflight local;
 2. captura ALSA real;
 3. reproducción confirmada;
-4. arranque y parada de `xarlatan.service` con la instalación restringida;
-5. interacción completa `voz -> STT -> LLM -> TTS -> audio` en foreground;
-6. reporte `beta-acceptance-<timestamp>.md`.
+4. arranque y parada mediante `systemctl --user`;
+5. interacción `voz -> STT -> LLM -> TTS -> audio`;
+6. ausencia de turnos espontáneos después del playback;
+7. reporte final `PASS`.
 
-## 8. Pregunta de prueba
+Formula exactamente una pregunta y luego permanece en silencio:
 
 ```text
-¿Qué día viene después del lunes?
+¿Cuánto es tres por dos?
 ```
 
-Debes oír una respuesta coherente. Esta beta todavía no incluye wake word, captura continua, streaming ni barge-in.
-
-## 9. Habilitar después del PASS
+## 8. Habilitar después del PASS
 
 ```bash
-sudo systemctl enable --now xarlatan
-sudo systemctl status xarlatan --no-pager
-sudo journalctl -u xarlatan -n 80 --no-pager
+systemctl --user enable --now xarlatan
+systemctl --user status xarlatan --no-pager
+journalctl --user -u xarlatan -n 80 --no-pager
 ```
 
-## 10. Diagnóstico
+La unidad se inicia al comenzar la sesión gráfica del usuario. No necesita un contenedor ni un usuario de sistema separado.
 
-### Error de audio
+## 9. Diagnóstico
+
+### Dependencias dinámicas
 
 ```bash
-arecord -L
-arecord -l
-aplay -l
-pactl info 2>/dev/null || true
+env -u LD_LIBRARY_PATH ldd /usr/local/bin/xarlatan
+sudo ls -lh /usr/local/lib/xarlatan
+cat /etc/ld.so.conf.d/xarlatan.conf
+sudo ldconfig
 ```
 
-Para systemd puede ser necesario configurar un dispositivo ALSA explícito obtenido de `arecord -l`. No adivines `hw:X,Y`.
+No debe aparecer ninguna biblioteca como `not found`.
 
-### El LLM no inicia
+### Audio o PipeWire
+
+```bash
+systemctl --user status pipewire wireplumber --no-pager
+test -S "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/pipewire-0"
+arecord -D default -f S16_LE -r 16000 -c 1 -d 1 /tmp/xarlatan-audio.wav
+aplay -D default /tmp/xarlatan-audio.wav
+rm -f /tmp/xarlatan-audio.wav
+```
+
+No pruebes `default` como el usuario de sistema legacy `xarlatan`; ese usuario no pertenece a la sesión PipeWire.
+
+### Servicio
+
+```bash
+systemctl --user daemon-reload
+systemctl --user restart xarlatan
+systemctl --user status xarlatan --no-pager -l
+journalctl --user -u xarlatan -b -n 150 --no-pager
+```
+
+### LLM, STT o TTS
 
 ```bash
 sudo ls -lh /var/lib/xarlatan/models/llm/
-sudo grep -A5 '^llm:' /etc/xarlatan/config.yaml
-/usr/local/bin/llama-server --version
-sudo journalctl -u xarlatan -n 100 --no-pager
-```
-
-### STT o TTS falla
-
-```bash
 sudo ls -lh /var/lib/xarlatan/models/stt/sherpa-onnx-whisper-base/
 sudo ls -lh /var/lib/xarlatan/models/tts/vits-piper-es_ES-davefx-medium/
 bash ./scripts/preflight.sh ./config.yaml
 ```
 
-### Proceso huérfano
+## 10. Rollback y desinstalación
 
 ```bash
-pgrep -a llama-server || true
-sudo systemctl stop xarlatan
-pgrep -a llama-server || true
-```
-
-## 11. Rollback
-
-```bash
-sudo systemctl disable --now xarlatan 2>/dev/null || true
+systemctl --user disable --now xarlatan 2>/dev/null || true
 sudo make rollback
-sudo systemctl daemon-reload
+systemctl --user daemon-reload
 ```
 
-Para remover binarios preservando configuración y modelos:
+Para remover binarios, librerías y unidad preservando configuración y modelos:
 
 ```bash
 sudo make uninstall
@@ -224,11 +221,12 @@ Para borrar también configuración, modelos y snapshot:
 sudo PURGE=1 make uninstall
 ```
 
-## 12. Evidencia
+## 11. Evidencia
 
 Conserva:
 
 - `beta-acceptance-<timestamp>.md`;
-- `/usr/local/bin/xarlatan -version`;
+- `env -u LD_LIBRARY_PATH /usr/local/bin/xarlatan -version`;
+- `env -u LD_LIBRARY_PATH ldd /usr/local/bin/xarlatan`;
 - `git rev-parse HEAD`;
-- `systemctl status` sin contenido conversacional.
+- `systemctl --user status xarlatan` sin contenido conversacional.
