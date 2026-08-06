@@ -21,6 +21,16 @@ func TestDefaultToolPolicyDeniesMutation(t *testing.T) {
 	}
 }
 
+func TestRegistryUsesRestrictivePolicyByDefault(t *testing.T) {
+	registry := NewRegistry()
+	if err := registry.Register(FSWrite{}); !IsToolDenied(err) {
+		t.Fatalf("Register(fs_write) error = %v, want ToolDeniedError", err)
+	}
+	if err := registry.Register(WebFetch{}); err != nil {
+		t.Fatalf("Register(web_fetch) error = %v", err)
+	}
+}
+
 func TestRegistryContainsOnlyAllowedTools(t *testing.T) {
 	registry := NewRegistry(NewToolPolicy("fs_read"))
 	if err := registry.Register(FSRead{}); err != nil {
