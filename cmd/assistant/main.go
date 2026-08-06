@@ -8,11 +8,12 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
+	"github.com/dfc-coder/xarlatan/internal/application"
 	"github.com/dfc-coder/xarlatan/internal/audio"
 	"github.com/dfc-coder/xarlatan/internal/config"
 	"github.com/dfc-coder/xarlatan/internal/console"
+	"github.com/dfc-coder/xarlatan/internal/conversation"
 	"github.com/dfc-coder/xarlatan/internal/llm"
 	"github.com/dfc-coder/xarlatan/internal/memory"
 	"github.com/dfc-coder/xarlatan/internal/orchestrator"
@@ -32,7 +33,7 @@ var (
 	version         = flag.Bool("version", false, "print version and exit")
 )
 
-const buildVersion = "0.2.0"
+const buildVersion = "0.3.0"
 
 func main() {
 	flag.Parse()
@@ -76,7 +77,11 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("stt: %w", err)
 	}
-	defer transcriber.Close()
+	defer func() {
+		if err := transcriber.Close(); err != nil {
+			slog.Warn("stt close", "err", err)
+		}
+	}()
 
 	serverManager, err := llm.NewServerManager(llm.ServerConfig{
 		Mode:            llm.ServerMode(cfg.LLM.Mode),
@@ -123,7 +128,6 @@ func run() error {
 	if *reset {
 		memoryManager.Reset()
 	}
-	history := memoryManager.History()
 
 	var registry *tools.Registry
 	var executor *tools.Executor
@@ -147,100 +151,36 @@ func run() error {
 		return fmt.Errorf("agent runtime: %w", err)
 	}
 
+	session, err := conversation.New(memoryManager, agent)
+	if err != nil {
+		return fmt.Errorf("conversation session: %w", err)
+	}
 	recorder := audio.NewRecorder(cfg.Audio)
-	speaker, err := tts.New(cfg.TTS, cfg.Audio.Device)
+	synthesizer, err := tts.New(cfg.TTS, cfg.Audio.Device)
 	if err != nil {
 		return fmt.Errorf("tts: %w", err)
 	}
-	defer speaker.Close()
+	defer func() {
+		if err := synthesizer.Close(); err != nil {
+			slog.Warn("tts close", "err", err)
+		}
+	}()
+	player := audio.NewPlayback(cfg.Audio.Device, cfg.Audio.SampleRate, cfg.Audio.Channels)
 	status := console.NewStatusPrinter(os.Stderr)
 
-	status.Set("Escuchando")
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		default:
-		}
-
-		samples, err := recorder.RecordUntilSilence(ctx)
-		if err != nil || len(samples) == 0 {
-			if ctx.Err() != nil {
-				return nil
-			}
-			status.Set("Escuchando")
-			continue
-		}
-
-		status.Set("Procesando STT")
-		t0 := time.Now()
-		text, err := transcriber.Transcribe(samples)
-		if err != nil || text == "" {
-			status.Set("Escuchando")
-			continue
-		}
-		slog.Debug("stt", "ms", time.Since(t0).Milliseconds(), "text", text)
-		fmt.Printf("\n👤  %s\n", text)
-
-		prepared, err := memoryManager.Prepare(ctx, text)
-		if err != nil {
-			if ctx.Err() != nil {
-				return nil
-			}
-			slog.Warn("memory prepare", "err", err)
-			status.Set("Escuchando")
-			continue
-		}
-		history = prepared.History
-		slog.Debug(
-			"memory prepare",
-			"input_bytes", prepared.Trace.InputBytes,
-			"output_bytes", prepared.Trace.OutputBytes,
-			"dropped_turns", prepared.Trace.DroppedTurns,
-			"summary_generated", prepared.Trace.SummaryGenerated,
-		)
-
-		status.Set("Pensando")
-		t0 = time.Now()
-		turn, err := agent.Run(ctx, orchestrator.Request{Input: text, History: history})
-		if err != nil {
-			if ctx.Err() != nil {
-				return nil
-			}
-			slog.Warn("agent", "err", err)
-			status.Set("Escuchando")
-			continue
-		}
-		printAgentTrace(turn.Trace)
-
-		snapshot, err := memoryManager.Update(ctx, turn.History)
-		if err != nil {
-			if ctx.Err() != nil {
-				return nil
-			}
-			return fmt.Errorf("memory update: %w", err)
-		}
-		history = snapshot.History
-		slog.Debug(
-			"memory compact",
-			"input_messages", snapshot.Trace.InputMessages,
-			"input_bytes", snapshot.Trace.InputBytes,
-			"output_messages", snapshot.Trace.OutputMessages,
-			"output_bytes", snapshot.Trace.OutputBytes,
-			"dropped_turns", snapshot.Trace.DroppedTurns,
-			"dropped_messages", snapshot.Trace.DroppedMessages,
-			"summary_generated", snapshot.Trace.SummaryGenerated,
-			"summary_bytes", snapshot.Trace.SummaryBytes,
-		)
-		slog.Debug("agent", "ms", time.Since(t0).Milliseconds(), "rounds", len(turn.Trace.Rounds))
-		fmt.Printf("🤖  %s\n", turn.Reply)
-
-		status.Set("Hablando")
-		if err := speaker.Speak(ctx, turn.Reply); err != nil {
-			slog.Warn("tts", "err", err)
-		}
-		status.Set("Escuchando")
+	voiceApplication, err := application.New(application.Dependencies{
+		Input:       recorder,
+		Transcriber: transcriber,
+		Responder:   session,
+		Synthesizer: synthesizer,
+		Player:      player,
+		Observer:    newConsoleObserver(status),
+		View:        newConsoleView(os.Stdout),
+	})
+	if err != nil {
+		return fmt.Errorf("voice application: %w", err)
 	}
+	return voiceApplication.Run(ctx)
 }
 
 func llamaServerArgs(cfg config.LLMConfig) []string {
@@ -252,18 +192,6 @@ func llamaServerArgs(cfg config.LLMConfig) []string {
 		"--n-gpu-layers", fmt.Sprintf("%d", cfg.NGPULayers),
 		"--threads", fmt.Sprintf("%d", cfg.Threads),
 		"--log-disable",
-	}
-}
-
-func printAgentTrace(trace orchestrator.Trace) {
-	for _, round := range trace.Rounds {
-		for _, tool := range round.Tools {
-			prefix := "✓"
-			if !tool.Success {
-				prefix = "✗"
-			}
-			fmt.Printf("   %s %s\n", prefix, tool.Tool)
-		}
 	}
 }
 
