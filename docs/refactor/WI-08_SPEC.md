@@ -28,7 +28,7 @@ Entregar una instalación Linux reproducible, idempotente, no root y reversible 
 /etc/xarlatan/config.yaml
 /etc/systemd/system/xarlatan.service
 /var/lib/xarlatan/models
-/var/lib/xarlatan/rollback
+/var/backups/xarlatan
 ```
 
 ## Política de instalación
@@ -36,7 +36,7 @@ Entregar una instalación Linux reproducible, idempotente, no root y reversible 
 - El instalador requiere root salvo cuando se usa `DESTDIR` para tests.
 - Crea usuario/grupo de sistema sin shell ni home.
 - No sobrescribe una configuración existente.
-- Antes de reemplazar binarios o unidad guarda un snapshot único de rollback.
+- Antes de reemplazar binarios o unidad guarda un snapshot único en `/var/backups/xarlatan`, fuera de los paths escribibles por el servicio.
 - La instalación no habilita ni inicia el servicio automáticamente.
 - `uninstall` preserva config y modelos salvo `PURGE=1`.
 
@@ -44,7 +44,7 @@ Entregar una instalación Linux reproducible, idempotente, no root y reversible 
 
 - `User=xarlatan`, `Group=xarlatan`, `SupplementaryGroups=audio`.
 - `NoNewPrivileges=true`, capabilities vacías, `ProtectSystem=strict`, `ProtectHome=true`.
-- `ReadWritePaths=/var/lib/xarlatan`.
+- `ReadWritePaths=/var/lib/xarlatan`; `/var/backups/xarlatan` permanece root-only.
 - `PrivateTmp=true`, protección de kernel/control groups y umask restrictiva.
 - Ejecuta con `--no-tools` por defecto; el operador puede habilitarlas explícitamente después de revisar policy/config.
 
@@ -71,4 +71,4 @@ systemd-analyze verify packaging/systemd/xarlatan.service
 
 ## Rollback
 
-`scripts/rollback.sh` restaura el snapshot creado por la última instalación. En una primera instalación elimina los artefactos que no existían antes. Config y modelos del usuario se preservan.
+`scripts/rollback.sh` restaura el snapshot root-only creado por la última instalación. En una primera instalación elimina los binarios y la unidad que no existían antes. Config y modelos del operador se preservan.
