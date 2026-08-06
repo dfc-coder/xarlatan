@@ -36,37 +36,70 @@ func main() {
 	flag.Parse()
 	if *version {
 		fmt.Println("assistant v" + buildVersion)
-		os.Exit(0)
+		return
 	}
 	setupLogger(*logLevel)
-	if *maxToolRounds <= 0 {
-		slog.Error("agent config", "err", "max-tool-rounds must be greater than zero")
+	if err := run(); err != nil {
+		slog.Error("assistant", "err", err)
 		os.Exit(1)
+	}
+}
+
+func run() error {
+	if *maxToolRounds <= 0 {
+		return fmt.Errorf("max-tool-rounds must be greater than zero")
 	}
 
 	cfg, err := config.Load(*cfgPath)
 	if err != nil {
-		slog.Error("config", "err", err)
-		os.Exit(1)
+		return fmt.Errorf("config: %w", err)
 	}
 	if err := cfg.Validate(); err != nil {
-		slog.Error("config validation", "err", err)
-		os.Exit(1)
+		return fmt.Errorf("config validation: %w", err)
 	}
+
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
 
 	transcriber, err := stt.New(cfg.STT, cfg.Audio.SampleRate)
 	if err != nil {
-		slog.Error("stt", "err", err)
-		os.Exit(1)
+		return fmt.Errorf("stt: %w", err)
 	}
 	defer transcriber.Close()
 
-	llmClient, err := llm.New(cfg.LLM)
+	serverManager, err := llm.NewServerManager(llm.ServerConfig{
+		Mode:            llm.ServerMode(cfg.LLM.Mode),
+		Binary:          cfg.LLM.ServerBinary,
+		Args:            llamaServerArgs(cfg.LLM),
+		HealthURL:       cfg.LLM.BaseURL() + "/health",
+		StartupTimeout:  cfg.LLM.StartupTimeout(),
+		ShutdownTimeout: cfg.LLM.ShutdownTimeout(),
+		HealthInterval:  cfg.LLM.HealthInterval(),
+	}, nil, nil)
 	if err != nil {
-		slog.Error("llm", "err", err)
-		os.Exit(1)
+		return fmt.Errorf("llm server manager: %w", err)
 	}
-	defer llmClient.Close()
+	if err := serverManager.Start(ctx); err != nil {
+		return fmt.Errorf("llm server start: %w", err)
+	}
+	defer func() {
+		if err := serverManager.Stop(context.Background()); err != nil {
+			slog.Warn("llm server stop", "err", err)
+		}
+	}()
+	if err := serverManager.WaitReady(ctx); err != nil {
+		return fmt.Errorf("llm server readiness: %w", err)
+	}
+
+	llmClient, err := llm.NewClient(llm.ClientConfig{
+		BaseURL:     cfg.LLM.BaseURL(),
+		Temperature: cfg.LLM.Temperature,
+		TopP:        cfg.LLM.TopP,
+		MaxTokens:   cfg.LLM.MaxTokens,
+	})
+	if err != nil {
+		return fmt.Errorf("llm client: %w", err)
+	}
 
 	summary := ""
 	history := memory.Compose(cfg.LLM.SystemPrompt, summary, nil)
@@ -80,8 +113,7 @@ func main() {
 	if !*noTools {
 		registry, err = buildRegistry(cfg)
 		if err != nil {
-			slog.Error("tools", "err", err)
-			os.Exit(1)
+			return fmt.Errorf("tools: %w", err)
 		}
 		executor = tools.NewExecutor(registry)
 		slog.Info("tools enabled", "list", registry.Names())
@@ -95,34 +127,29 @@ func main() {
 		orchestrator.SlogObserver{},
 	)
 	if err != nil {
-		slog.Error("agent runtime", "err", err)
-		os.Exit(1)
+		return fmt.Errorf("agent runtime: %w", err)
 	}
 
 	recorder := audio.NewRecorder(cfg.Audio)
 	speaker, err := tts.New(cfg.TTS, cfg.Audio.Device)
 	if err != nil {
-		slog.Error("tts", "err", err)
-		os.Exit(1)
+		return fmt.Errorf("tts: %w", err)
 	}
 	defer speaker.Close()
 	status := console.NewStatusPrinter(os.Stderr)
-
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer cancel()
 
 	status.Set("Escuchando")
 	for {
 		select {
 		case <-ctx.Done():
-			return
+			return nil
 		default:
 		}
 
 		samples, err := recorder.RecordUntilSilence(ctx)
 		if err != nil || len(samples) == 0 {
 			if ctx.Err() != nil {
-				return
+				return nil
 			}
 			status.Set("Escuchando")
 			continue
@@ -143,7 +170,7 @@ func main() {
 		turn, err := agent.Run(ctx, orchestrator.Request{Input: text, History: history})
 		if err != nil {
 			if ctx.Err() != nil {
-				return
+				return nil
 			}
 			slog.Warn("agent", "err", err)
 			status.Set("Escuchando")
@@ -169,6 +196,18 @@ func main() {
 			slog.Warn("tts", "err", err)
 		}
 		status.Set("Escuchando")
+	}
+}
+
+func llamaServerArgs(cfg config.LLMConfig) []string {
+	return []string{
+		"--model", cfg.Model,
+		"--host", cfg.Host,
+		"--port", fmt.Sprintf("%d", cfg.Port),
+		"--ctx-size", fmt.Sprintf("%d", cfg.ContextSize),
+		"--n-gpu-layers", fmt.Sprintf("%d", cfg.NGPULayers),
+		"--threads", fmt.Sprintf("%d", cfg.Threads),
+		"--log-disable",
 	}
 }
 
