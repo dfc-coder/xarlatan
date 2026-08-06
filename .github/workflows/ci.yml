@@ -60,6 +60,8 @@ jobs:
           go test -count=1 -coverprofile=memory-coverage.out ./internal/memory
           go test -count=1 -coverprofile=application-coverage.out ./internal/application
           go test -count=1 -coverprofile=conversation-coverage.out ./internal/conversation
+          go test -count=1 -coverprofile=audio-coverage.out ./internal/audio
+          go test -count=1 -coverprofile=vad-coverage.out ./internal/vad
 
           enforce() {
             local name="$1"
@@ -74,6 +76,8 @@ jobs:
           enforce memory memory-coverage.out 80
           enforce application application-coverage.out 80
           enforce conversation conversation-coverage.out 80
+          enforce audio audio-coverage.out 51
+          enforce vad vad-coverage.out 90
 
       - name: Repeat agent, tool, LLM, memory, audio, conversation, and application tests
         run: go test -count=20 ./internal/orchestrator ./internal/tools ./internal/llm ./internal/memory ./internal/audio ./internal/conversation ./internal/application
@@ -93,3 +97,5 @@ jobs:
             memory-coverage.out
             application-coverage.out
             conversation-coverage.out
+            audio-coverage.out
+            vad-coverage.out
