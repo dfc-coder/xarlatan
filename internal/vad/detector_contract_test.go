@@ -22,3 +22,13 @@ func TestEnergyVADImplementsDetectorLifecycle(t *testing.T) {
 		t.Fatalf("Close() error = %v", err)
 	}
 }
+
+func TestEnergyVADCompatibilityMethodsAreNilSafe(t *testing.T) {
+	var detector *VAD
+	detector.SetEventHandler(func(Event) {
+		t.Fatal("nil detector invoked handler")
+	})
+	if err := detector.Close(); err != nil {
+		t.Fatalf("nil Close() error = %v", err)
+	}
+}
