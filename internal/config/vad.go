@@ -29,8 +29,8 @@ type VADRuntimeConfig struct {
 // SileroVADConfig resolves the Phase 2 VAD runtime from the existing model
 // layout. Standard layouts are:
 //
-//   models/stt/<model>/...            -> models/vad/silero_vad.onnx
-//   /var/lib/xarlatan/models/stt/...  -> /var/lib/xarlatan/models/vad/silero_vad.onnx
+//	models/stt/<model>/...            -> models/vad/silero_vad.onnx
+//	/var/lib/xarlatan/models/stt/...  -> /var/lib/xarlatan/models/vad/silero_vad.onnx
 func (c Config) SileroVADConfig() (VADRuntimeConfig, error) {
 	if c.Audio.SampleRate != 16000 {
 		return VADRuntimeConfig{}, fmt.Errorf("silero VAD requires audio.sample_rate=16000")
