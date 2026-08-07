@@ -1,0 +1,33 @@
+name: wi11a one-shot format
+
+on:
+  push:
+    branches:
+      - "agent/wi-11a-streaming-replies"
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/wi-11a-streaming-replies
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.21.x"
+      - name: Format WI-11A Go files
+        run: |
+          gofmt -w internal/application/coordinator.go internal/application/coordinator_stream_test.go
+          if git diff --quiet; then
+            echo "No formatting changes required"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add internal/application/coordinator.go internal/application/coordinator_stream_test.go
+          git commit -m "style(WI-11A): gofmt streaming coordinator"
+          git push origin HEAD:agent/wi-11a-streaming-replies
