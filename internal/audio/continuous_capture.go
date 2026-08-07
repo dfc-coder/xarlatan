@@ -16,7 +16,7 @@ import (
 
 const (
 	defaultContinuousPreRollChunks = 4
-	defaultUtteranceQueueDepth      = 4
+	defaultUtteranceQueueDepth     = 4
 )
 
 // ContinuousOptions bounds the only retained raw-audio windows in continuous
