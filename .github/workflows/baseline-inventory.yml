@@ -58,6 +58,7 @@ jobs:
           test -f internal/audio/continuous_capture_test.go
           test -f internal/audio/continuous_playback_guard.go
           test -f internal/audio/barge_capture_test.go
+          test -f internal/audio/partial_capture_test.go
           test -f internal/conversation/session_test.go
           test -f internal/conversation/stream_test.go
           test -f internal/application/application_test.go
@@ -79,10 +80,15 @@ jobs:
           test -f internal/application/barge_in_test.go
           test -f internal/application/wake.go
           test -f internal/application/wake_test.go
+          test -f internal/application/transcript.go
+          test -f internal/application/transcript_test.go
           test -f cmd/assistant/main_test.go
           test -f cmd/assistant/wi11a_test.go
           test -f cmd/assistant/capture_gate_observer.go
           test -f cmd/assistant/capture_gate_observer_test.go
+          test -f cmd/assistant/transcript_observer.go
+          test -f cmd/assistant/transcript_metric.go
+          test -f cmd/assistant/wi11c2_test.go
           test -f cmd/assistant/shutdown_test.go
           test -f scripts/tests/wi08_contract_test.sh
           test -f scripts/tests/wi09_contract_test.sh
@@ -95,6 +101,11 @@ jobs:
           test -f scripts/collect_runtime_libs.sh
           test -f packaging/config.yaml
           test -f packaging/systemd/xarlatan.service
+          ! test -e .github/workflows/wi11c2-app-patch.yml
+          ! test -e .github/workflows/wi11c2-audio-patch.yml
+          ! test -e .github/workflows/wi11c2-finish-metric.yml
+          ! test -e .github/workflows/wi11c2-inventory-patch.yml
+          ! test -e .github/workflows/wi11c2-finalize.yml
           ! grep -R --include='*.go' -n "github.com/local/assistant" cmd internal
           ! grep -n "github.com/local/assistant" go.mod go.sum
           test -f LICENSE
@@ -122,4 +133,5 @@ jobs:
           test -f docs/refactor/WI-11A_SPEC.md
           test -f docs/refactor/WI-11B_SPEC.md
           test -f docs/refactor/WI-11C1_SPEC.md
+          test -f docs/refactor/WI-11C2_SPEC.md
           test -z "$(gofmt -l cmd internal)"
