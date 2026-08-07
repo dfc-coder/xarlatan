@@ -26,42 +26,48 @@ jobs:
 
           p = Path('internal/application/application.go')
           text = p.read_text()
-          text = text.replace(
-              '\tFirstResponseDelta time.Duration\n',
-              '\tFirstSTTPartial    time.Duration\n\tFirstResponseDelta time.Duration\n',
-              1,
-          )
-          text = text.replace(
-              '\tfirstResponseDelta time.Duration\n\tfirstAudio         time.Duration\n',
-              '\tfirstSTTPartial    time.Duration\n\tfirstResponseDelta time.Duration\n\tfirstAudio         time.Duration\n',
-              1,
-          )
-          marker = '''func (r *turnRecorder) markFirstResponseDelta() {
-'''
-          method = '''func (r *turnRecorder) markFirstSTTPartial(latency time.Duration) {
+          if 'FirstSTTPartial' not in text:
+              text = text.replace(
+                  '\tFirstResponseDelta time.Duration\n',
+                  '\tFirstSTTPartial    time.Duration\n\tFirstResponseDelta time.Duration\n',
+                  1,
+              )
+          if 'firstSTTPartial' not in text:
+              text = text.replace(
+                  '\tfirstResponseDelta time.Duration\n\tfirstAudio         time.Duration\n',
+                  '\tfirstSTTPartial    time.Duration\n\tfirstResponseDelta time.Duration\n\tfirstAudio         time.Duration\n',
+                  1,
+              )
+          marker = 'func (r *turnRecorder) markFirstResponseDelta() {\n'
+          if 'func (r *turnRecorder) markFirstSTTPartial' not in text:
+              method = '''func (r *turnRecorder) markFirstSTTPartial(latency time.Duration) {
 \tif r != nil && r.firstSTTPartial == 0 && latency > 0 {
 \t\tr.firstSTTPartial = latency
 \t}
 }
 
 '''
-          if marker not in text:
-              raise SystemExit('turn recorder method marker missing')
-          text = text.replace(marker, method + marker, 1)
-          text = text.replace(
-              '\ttrace.TotalDuration = positiveDuration(now.Sub(r.started))\n\tif trace.FirstResponseDelta == 0 {\n',
-              '\ttrace.TotalDuration = positiveDuration(now.Sub(r.started))\n\tif trace.FirstSTTPartial == 0 {\n\t\ttrace.FirstSTTPartial = r.firstSTTPartial\n\t}\n\tif trace.FirstResponseDelta == 0 {\n',
-              1,
-          )
+              if marker not in text:
+                  raise SystemExit('turn recorder method marker missing')
+              text = text.replace(marker, method + marker, 1)
+          finish_anchor = '\ttrace.TotalDuration = positiveDuration(now.Sub(r.started))\n'
+          if '\t\ttrace.FirstSTTPartial = r.firstSTTPartial\n' not in text:
+              if finish_anchor not in text:
+                  raise SystemExit('finish anchor missing')
+              text = text.replace(
+                  finish_anchor,
+                  finish_anchor + '\tif trace.FirstSTTPartial == 0 {\n\t\ttrace.FirstSTTPartial = r.firstSTTPartial\n\t}\n',
+                  1,
+              )
           p.write_text(text)
 
           p = Path('internal/application/coordinator.go')
           text = p.read_text()
-          text = text.replace(
-              '\tinterrupts   InterruptSource\n\twake         WakeDetector\n',
-              '\tinterrupts   InterruptSource\n\twake         WakeDetector\n\ttranscripts  TranscriptObserver\n',
-              1,
-          )
+          if '\ttranscripts  TranscriptObserver\n' not in text:
+              anchor = '\tinterrupts   InterruptSource\n\twake         WakeDetector\n'
+              if anchor not in text:
+                  raise SystemExit('Coordinator field anchor missing')
+              text = text.replace(anchor, anchor + '\ttranscripts  TranscriptObserver\n', 1)
           text = text.replace(
               '\treturn &Coordinator{dependencies: dependencies}, nil\n',
               '\treturn &Coordinator{dependencies: dependencies, transcripts: nopTranscriptObserver{}}, nil\n',
@@ -83,9 +89,10 @@ jobs:
 \t\treturn c.fail(turnCtx, recorder, result, ErrorCaptureFailed, stageErr)
 \t}
 '''
-          if old not in text:
-              raise SystemExit('capture lifecycle anchor missing')
-          text = text.replace(old, new, 1)
+          if 'partialResult := c.startPartialSTT' not in text:
+              if old not in text:
+                  raise SystemExit('capture lifecycle anchor missing')
+              text = text.replace(old, new, 1)
           old = '''\ttranscript := strings.TrimSpace(transcription.text)
 \tif transcript == "" {
 '''
@@ -93,9 +100,10 @@ jobs:
 \tc.transcriptObserver().OnTranscript(TranscriptEvent{TurnID: turnID, Kind: TranscriptFinal, Text: transcript})
 \tif transcript == "" {
 '''
-          if old not in text:
-              raise SystemExit('final transcript anchor missing')
-          text = text.replace(old, new, 1)
+          if 'Kind: TranscriptFinal' not in text:
+              if old not in text:
+                  raise SystemExit('final transcript anchor missing')
+              text = text.replace(old, new, 1)
           p.write_text(text)
           PY
           gofmt -w internal/application/application.go internal/application/coordinator.go internal/application/transcript.go internal/application/transcript_test.go
