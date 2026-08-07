@@ -1,0 +1,55 @@
+name: wi11c1 one-shot metric patch
+
+on:
+  push:
+    branches:
+      - "agent/wi-11c1-barge-in"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/wi-11c1-barge-in
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.21.x"
+      - name: Add interrupt latency trace and fix audio duration constant
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          p = Path('internal/application/application.go')
+          text = p.read_text()
+          old = '\tFirstAudio         time.Duration\n'
+          new = '\tFirstAudio         time.Duration\n\tInterruptLatency  time.Duration\n'
+          if old not in text:
+              raise SystemExit('Trace anchor missing')
+          p.write_text(text.replace(old, new, 1))
+
+          p = Path('internal/application/coordinator.go')
+          text = p.read_text()
+          old = '\t\tresult.Trace.ErrorCode = ErrorInterrupted\n\t\treturn result, interruptedApplicationError()\n'
+          new = '\t\tresult.Trace.ErrorCode = ErrorInterrupted\n\t\tresult.Trace.InterruptLatency = interruptLatency(ctx)\n\t\treturn result, interruptedApplicationError()\n'
+          if old not in text:
+              raise SystemExit('interrupted trace anchor missing')
+          p.write_text(text.replace(old, new, 1))
+
+          p = Path('internal/audio/continuous_capture.go')
+          text = p.read_text()
+          if 'pcmChunkMilliseconds' not in text:
+              raise SystemExit('audio duration symbol missing')
+          p.write_text(text.replace('pcmChunkMilliseconds', 'chunkDurationMS'))
+          PY
+          gofmt -w internal/application/application.go internal/application/coordinator.go internal/audio/continuous_capture.go
+          rm .github/workflows/wi11c1-metric-patch.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add internal/application/application.go internal/application/coordinator.go internal/audio/continuous_capture.go .github/workflows/wi11c1-metric-patch.yml
+          git commit -m "feat(WI-11C1): trace confirmed interrupt latency"
+          git push origin HEAD:agent/wi-11c1-barge-in
