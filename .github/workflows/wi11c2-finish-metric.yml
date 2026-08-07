@@ -1,0 +1,50 @@
+name: wi11c2 one-shot finish metric
+
+on:
+  push:
+    branches:
+      - "agent/wi-11c2-partial-stt"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/wi-11c2-partial-stt
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.21.x"
+      - name: Scope partial metric provider to observer
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('internal/application/application.go')
+          text = p.read_text()
+          old = '''\tif trace.FirstSTTPartial == 0 {
+\t\ttrace.FirstSTTPartial = consumeFirstSTTPartial(r.turnID)
+\t}
+'''
+          new = '''\tif trace.FirstSTTPartial == 0 {
+\t\tif provider, ok := r.observer.(STTPartialMetricProvider); ok {
+\t\t\ttrace.FirstSTTPartial = provider.ConsumeFirstSTTPartial(r.turnID)
+\t\t}
+\t}
+'''
+          if old not in text:
+              if 'provider.ConsumeFirstSTTPartial' in text:
+                  raise SystemExit(0)
+              raise SystemExit('partial metric finish anchor missing')
+          p.write_text(text.replace(old, new, 1))
+          PY
+          gofmt -w internal/application/application.go
+          rm .github/workflows/wi11c2-finish-metric.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add internal/application/application.go .github/workflows/wi11c2-finish-metric.yml
+          git commit -m "refactor(WI-11C2): scope partial metric to observer"
+          git push origin HEAD:agent/wi-11c2-partial-stt

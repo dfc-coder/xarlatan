@@ -20,6 +20,8 @@ const (
 	defaultContinuousPreRollChunks = 4
 	defaultUtteranceQueueDepth     = 4
 	defaultBargeCandidateDepth     = 2
+	defaultPartialSnapshotDepth    = 1
+	partialPreviewDuration         = time.Second
 	bargePreRollChunks             = 2
 	bargeWarmupChunks              = 3
 	bargeTriggerChunks             = 2
@@ -49,6 +51,13 @@ type BargeCandidate struct {
 	Buffer    Buffer
 	StartedAt time.Time
 	PeakRMS   float64
+}
+
+// PartialAudio is a single bounded snapshot captured before a normal utterance
+// reaches the Silero endpoint. It is private data-plane input to preview STT.
+type PartialAudio struct {
+	Buffer     Buffer
+	CapturedAt time.Time
 }
 
 type captureProcess interface {
@@ -140,6 +149,7 @@ type ContinuousRecorder struct {
 	factory captureProcessFactory
 
 	utterances      chan Buffer
+	partials        chan PartialAudio
 	bargeCandidates chan BargeCandidate
 	sourceErr       chan error
 
@@ -153,6 +163,7 @@ type ContinuousRecorder struct {
 	closeErr   error
 	dropped    atomic.Uint64
 	suppressed atomic.Bool
+	waiting    atomic.Bool
 }
 
 // NewContinuousRecorderWithDetector constructs the production continuous
@@ -190,6 +201,7 @@ func newContinuousRecorder(
 		preRoll:         newPreRollBuffer(options.PreRollChunks),
 		factory:         factory,
 		utterances:      make(chan Buffer, options.QueueDepth),
+		partials:        make(chan PartialAudio, defaultPartialSnapshotDepth),
 		bargeCandidates: make(chan BargeCandidate, defaultBargeCandidateDepth),
 		sourceErr:       make(chan error, 1),
 	}, nil
@@ -205,6 +217,9 @@ func (r *ContinuousRecorder) Next(ctx context.Context) (Buffer, error) {
 	if err := ctx.Err(); err != nil {
 		return Buffer{}, err
 	}
+	r.resetPartials()
+	r.waiting.Store(true)
+	defer r.waiting.Store(false)
 
 	// Prefer already-buffered speech before deciding whether the source needs
 	// restart. This preserves a completed utterance if arecord ended immediately
@@ -230,6 +245,15 @@ func (r *ContinuousRecorder) Next(ctx context.Context) (Buffer, error) {
 			}
 		}
 	}
+}
+
+// PartialAudio exposes a single-slot private preview stream. Snapshots are
+// produced only while one Next call is actively waiting for the current turn.
+func (r *ContinuousRecorder) PartialAudio() <-chan PartialAudio {
+	if r == nil {
+		return nil
+	}
+	return r.partials
 }
 
 // BargeCandidates exposes a bounded private audio stream for the barge-in
@@ -295,6 +319,7 @@ func (r *ContinuousRecorder) readLoop(process captureProcess) {
 	}
 	buffer := make([]byte, bytesPerChunk)
 	var recording []float32
+	partialSent := false
 	wasSuppressed := r.suppressed.Load()
 	barge := newBargeCaptureState()
 
@@ -311,6 +336,8 @@ func (r *ContinuousRecorder) readLoop(process captureProcess) {
 					wasSuppressed = true
 				}
 				recording = nil
+				partialSent = false
+				r.resetPartials()
 				if candidate, ready := r.processBargeChunk(barge, chunk); ready {
 					r.publishBargeCandidate(candidate)
 					r.vad.Reset()
@@ -325,9 +352,11 @@ func (r *ContinuousRecorder) readLoop(process captureProcess) {
 				}
 				var finish bool
 				recording, finish = r.processChunk(recording, chunk)
+				partialSent = r.maybePublishPartial(recording, partialSent)
 				if finish {
 					r.publishUtterance(recording)
 					recording = nil
+					partialSent = false
 					r.vad.Reset()
 					r.preRoll.reset()
 				}
@@ -463,6 +492,57 @@ func chunkRMS(samples []float32) float64 {
 		sum += v * v
 	}
 	return math.Sqrt(sum / float64(len(samples)))
+}
+
+func (r *ContinuousRecorder) maybePublishPartial(recording []float32, alreadySent bool) bool {
+	if alreadySent || r == nil || !r.waiting.Load() || len(recording) == 0 {
+		return alreadySent
+	}
+	threshold := int(float64(r.cfg.SampleRate*r.cfg.Channels) * partialPreviewDuration.Seconds())
+	if len(recording) < threshold {
+		return false
+	}
+	r.publishPartial(PartialAudio{
+		Buffer: Buffer{
+			Samples:    append([]float32(nil), recording...),
+			SampleRate: r.cfg.SampleRate,
+			Channels:   r.cfg.Channels,
+		},
+		CapturedAt: time.Now(),
+	})
+	return true
+}
+
+func (r *ContinuousRecorder) publishPartial(preview PartialAudio) {
+	if r == nil || r.partials == nil || preview.Buffer.Empty() {
+		return
+	}
+	select {
+	case r.partials <- preview:
+		return
+	default:
+	}
+	select {
+	case <-r.partials:
+	default:
+	}
+	select {
+	case r.partials <- preview:
+	default:
+	}
+}
+
+func (r *ContinuousRecorder) resetPartials() {
+	if r == nil || r.partials == nil {
+		return
+	}
+	for {
+		select {
+		case <-r.partials:
+		default:
+			return
+		}
+	}
 }
 
 func (r *ContinuousRecorder) publishUtterance(samples []float32) {
