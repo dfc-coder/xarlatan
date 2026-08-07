@@ -105,7 +105,8 @@ func TestCoordinatorAssignsMonotonicTurnIDs(t *testing.T) {
 }
 
 func TestWorkerSetDiscardsStaleTurnResult(t *testing.T) {
-	workers := &workerSet{results: make(chan stageResult, 2)}
+	workers := newWorkerSet(context.Background(), Dependencies{})
+	defer workers.stop()
 	workers.results <- stageResult{turnID: 41, stage: stageTranscribe, text: "stale"}
 	workers.results <- stageResult{turnID: 42, stage: stageTranscribe, text: "fresh"}
 
