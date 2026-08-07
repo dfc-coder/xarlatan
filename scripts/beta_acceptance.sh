@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Keep the historical WI-09 acceptance intact. The continuous-voice beta uses
+# its dedicated protocol only when v0.5 is explicitly requested.
+if [[ "${EXPECTED_VERSION:-}" == "v0.5.0-beta.1" ]]; then
+  exec bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/beta_v05_acceptance.sh" "$@"
+fi
+
 EXPECTED_VERSION="${EXPECTED_VERSION:-v0.4.0-beta.1}"
 CONFIG="${1:-${XARLATAN_CONFIG:-}}"
 AUDIO_DEVICE="${AUDIO_DEVICE:-}"

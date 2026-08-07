@@ -92,11 +92,13 @@ jobs:
           test -f cmd/assistant/shutdown_test.go
           test -f scripts/tests/wi08_contract_test.sh
           test -f scripts/tests/wi09_contract_test.sh
+          test -f scripts/tests/wi11d_contract_test.sh
           test -f scripts/install.sh
           test -f scripts/uninstall.sh
           test -f scripts/rollback.sh
           test -f scripts/preflight.sh
           test -f scripts/beta_acceptance.sh
+          test -f scripts/beta_v05_acceptance.sh
           test -f scripts/package_release.sh
           test -f scripts/collect_runtime_libs.sh
           test -f packaging/config.yaml
@@ -106,11 +108,14 @@ jobs:
           ! test -e .github/workflows/wi11c2-finish-metric.yml
           ! test -e .github/workflows/wi11c2-inventory-patch.yml
           ! test -e .github/workflows/wi11c2-finalize.yml
+          ! test -e .github/workflows/wi11d-release-finalize.yml
+          ! test -e .github/workflows/wi11d-validate.yml
           ! grep -R --include='*.go' -n "github.com/local/assistant" cmd internal
           ! grep -n "github.com/local/assistant" go.mod go.sum
           test -f LICENSE
           test -f CHANGELOG.md
           test -f docs/BETA_RUNBOOK.md
+          test -f docs/BETA_V05_RUNBOOK.md
           test -f docs/baseline/REPOSITORY_LAYOUT.md
           test -f docs/baseline/VALIDATION.md
           test -f docs/baseline/KNOWN_ISSUES.md
@@ -134,4 +139,6 @@ jobs:
           test -f docs/refactor/WI-11B_SPEC.md
           test -f docs/refactor/WI-11C1_SPEC.md
           test -f docs/refactor/WI-11C2_SPEC.md
+          test -f docs/refactor/WI-11D_SPEC.md
+          test -f docs/refactor/WI-11D_RELEASE_NOTES.md
           test -z "$(gofmt -l cmd internal)"

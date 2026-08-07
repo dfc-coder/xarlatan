@@ -98,8 +98,8 @@ jobs:
 
       - name: Build and verify version
         run: |
-          make clean build VERSION=v0.4.0-ci
-          test "$(./bin/assistant -version)" = "assistant v0.4.0-ci"
+          make clean build
+          test "$(./bin/assistant -version)" = "assistant v0.5.0-beta.1"
           test -x ./bin/calibrate
 
       - name: Verify shell and release contracts
@@ -108,11 +108,13 @@ jobs:
           shellcheck --exclude=SC2016 \
             scripts/install.sh scripts/uninstall.sh scripts/rollback.sh \
             scripts/download_models.sh scripts/preflight.sh \
-            scripts/beta_acceptance.sh scripts/package_release.sh \
+            scripts/beta_acceptance.sh scripts/beta_v05_acceptance.sh scripts/package_release.sh \
             scripts/collect_runtime_libs.sh \
-            scripts/tests/wi08_contract_test.sh scripts/tests/wi09_contract_test.sh
+            scripts/tests/wi08_contract_test.sh scripts/tests/wi09_contract_test.sh \
+            scripts/tests/wi11d_contract_test.sh
           bash scripts/tests/wi08_contract_test.sh
           bash scripts/tests/wi09_contract_test.sh
+          bash scripts/tests/wi11d_contract_test.sh
 
       - name: Verify systemd user unit and hardening
         run: |
