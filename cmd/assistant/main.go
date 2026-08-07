@@ -190,6 +190,15 @@ func run() error {
 		}
 	}()
 
+	transcriptBridge, err := application.NewTranscriptBridge(
+		recorder,
+		transcriber,
+		newConsoleTranscriptObserver(os.Stdout),
+	)
+	if err != nil {
+		return fmt.Errorf("transcript bridge: %w", err)
+	}
+
 	synthesizer, err := tts.New(cfg.TTS, cfg.Audio.Device)
 	if err != nil {
 		return fmt.Errorf("tts: %w", err)
@@ -211,11 +220,14 @@ func run() error {
 		}
 	}()
 	status := console.NewStatusPrinter(os.Stderr)
-	observer := newCaptureGateObserver(newConsoleObserver(status), recorder)
+	observer := newFanoutObserver(
+		newCaptureGateObserver(newConsoleObserver(status), recorder),
+		transcriptBridge,
+	)
 
 	voiceCoordinator, err := application.NewCoordinator(application.Dependencies{
 		Input:       recorder,
-		Transcriber: transcriber,
+		Transcriber: transcriptBridge,
 		Responder:   session,
 		Synthesizer: synthesizer,
 		Player:      player,
