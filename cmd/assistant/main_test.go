@@ -58,6 +58,8 @@ func TestMainConstructsSingleRuntimeSessionAndCoordinator(t *testing.T) {
 	for _, required := range []string{
 		"orchestrator.NewAgentRuntime(",
 		"conversation.New(memoryManager, agent)",
+		"audio.NewPlayback(",
+		"player.Close()",
 		"application.NewCoordinator(application.Dependencies{",
 		"voiceCoordinator.Run(ctx)",
 	} {

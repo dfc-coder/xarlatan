@@ -162,6 +162,11 @@ func run() error {
 		}
 	}()
 	player := audio.NewPlayback(cfg.Audio.Device, cfg.Audio.SampleRate, cfg.Audio.Channels)
+	defer func() {
+		if err := player.Close(); err != nil {
+			slog.Warn("playback close", "err", err)
+		}
+	}()
 	status := console.NewStatusPrinter(os.Stderr)
 
 	voiceCoordinator, err := application.NewCoordinator(application.Dependencies{
