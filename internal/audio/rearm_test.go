@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"io"
 	"testing"
 	"time"
 )
@@ -53,17 +52,17 @@ func TestRearmCooldownIsCancelable(t *testing.T) {
 	}
 }
 
-func TestPlaybackRunsGuardAfterAudioCompletes(t *testing.T) {
+func TestPlaybackRunsGuardAfterAudioWrite(t *testing.T) {
 	calls := make([]string, 0, 2)
+	factory := newFakePlaybackFactory()
+	factory.onWrite = func() { calls = append(calls, "playback") }
 	player := NewPlayback("default", 16000, 1)
-	player.runner = commandRunnerFunc(func(context.Context, string, []string, io.Reader) ([]byte, error) {
-		calls = append(calls, "playback")
-		return nil, nil
-	})
+	player.factory = factory
 	player.guard = playbackGuardFunc(func(context.Context) error {
 		calls = append(calls, "guard")
 		return nil
 	})
+	defer player.Close()
 
 	err := player.Play(context.Background(), Buffer{Samples: []float32{0.1}, SampleRate: 16000, Channels: 1})
 	if err != nil {
@@ -76,14 +75,15 @@ func TestPlaybackRunsGuardAfterAudioCompletes(t *testing.T) {
 
 func TestPlaybackDoesNotGuardAfterPlaybackFailure(t *testing.T) {
 	guardCalled := false
+	factory := newFakePlaybackFactory()
+	factory.writeErr = errors.New("device failed")
 	player := NewPlayback("default", 16000, 1)
-	player.runner = commandRunnerFunc(func(context.Context, string, []string, io.Reader) ([]byte, error) {
-		return nil, errors.New("device failed")
-	})
+	player.factory = factory
 	player.guard = playbackGuardFunc(func(context.Context) error {
 		guardCalled = true
 		return nil
 	})
+	defer player.Close()
 
 	if err := player.Play(context.Background(), Buffer{Samples: []float32{0.1}, SampleRate: 16000, Channels: 1}); err == nil {
 		t.Fatal("Play() error = nil, want failure")
@@ -91,10 +91,4 @@ func TestPlaybackDoesNotGuardAfterPlaybackFailure(t *testing.T) {
 	if guardCalled {
 		t.Fatal("guard ran after failed playback")
 	}
-}
-
-type commandRunnerFunc func(context.Context, string, []string, io.Reader) ([]byte, error)
-
-func (f commandRunnerFunc) Run(ctx context.Context, name string, args []string, stdin io.Reader) ([]byte, error) {
-	return f(ctx, name, args, stdin)
 }
