@@ -378,6 +378,9 @@ func (r *turnRecorder) emit(state State) {
 	if r.current != "" {
 		r.durations[r.current] += positiveDuration(now.Sub(r.stageStarted))
 	}
+	if state == StateSpeaking {
+		r.markFirstAudio()
+	}
 	r.current = state
 	r.stageStarted = now
 	r.states = append(r.states, state)
