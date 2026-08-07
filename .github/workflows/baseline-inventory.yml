@@ -33,13 +33,18 @@ jobs:
         run: |
           set -euo pipefail
           test -f internal/config/config_test.go
+          test -f internal/config/vad_test.go
           test -f internal/tools/policy_test.go
           test -f internal/tools/web_security_test.go
           test -f internal/orchestrator/runtime_test.go
           test -f internal/llm/server_manager_test.go
           test -f internal/memory/memory_test.go
           test -f internal/memory/prepare_test.go
+          test -f internal/vad/detector.go
+          test -f internal/vad/silero.go
+          test -f internal/vad/silero_test.go
           test -f internal/audio/wi07_test.go
+          test -f internal/audio/detector_test.go
           test -f internal/audio/persistent_playback_test.go
           test -f internal/conversation/session_test.go
           test -f internal/application/application_test.go
@@ -84,4 +89,5 @@ jobs:
           test -f docs/refactor/WI-09_EVIDENCE.md
           test -f docs/refactor/WI-10A_SPEC.md
           test -f docs/refactor/WI-10B_SPEC.md
+          test -f docs/refactor/WI-10C_SPEC.md
           test -z "$(gofmt -l cmd internal)"
