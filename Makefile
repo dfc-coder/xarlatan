@@ -4,6 +4,7 @@ SHELL := /bin/bash
 REPO_ROOT := $(shell pwd)
 VENDOR_DIR := $(REPO_ROOT)/vendor
 BIN_DIR := $(REPO_ROOT)/bin
+RUNTIME_LIB_DIR := $(REPO_ROOT)/lib
 LLAMA_DIR := $(VENDOR_DIR)/llama.cpp
 
 LLAMA_REF := b8660
@@ -17,9 +18,9 @@ ifdef GGML_CUDA
   CMAKE_LLAMA_EXTRA := -DGGML_CUDA=ON
 endif
 
-.PHONY: all build deps llama models install uninstall rollback release-candidate preflight beta-acceptance clean clean-all clean-llama reset-llama help FORCE
+.PHONY: all build runtime-libs deps llama models install uninstall rollback release-candidate preflight beta-acceptance clean clean-all clean-llama reset-llama help FORCE
 
-all: deps build ## Build llama-server and all Go commands
+all: deps build ## Build llama-server, Go commands and native runtime libraries
 
 deps: llama ## Build third-party runtime dependencies
 
@@ -42,7 +43,7 @@ $(BIN_DIR)/llama-server:
 	@cp $(LLAMA_DIR)/build/bin/llama-server $(BIN_DIR)/llama-server
 	@echo "✓ llama-server built → bin/llama-server"
 
-build: $(BIN_DIR)/assistant $(BIN_DIR)/calibrate ## Build all Go commands
+build: $(BIN_DIR)/assistant $(BIN_DIR)/calibrate runtime-libs ## Build Go commands and stage native runtime libraries
 
 $(BIN_DIR)/assistant: FORCE
 	@mkdir -p $(BIN_DIR)
@@ -56,15 +57,23 @@ $(BIN_DIR)/calibrate: FORCE
 	@go build $(GOFLAGS) -ldflags="-s -w" -o $(BIN_DIR)/calibrate ./cmd/calibrate
 	@echo "✓ calibrate built → bin/calibrate"
 
+runtime-libs: $(BIN_DIR)/assistant FORCE ## Stage non-system CGo libraries before sudo installation
+	@module_dir="$$(go list -m -f '{{.Dir}}' github.com/k2-fsa/sherpa-onnx-go-linux)"; \
+	rm -rf $(RUNTIME_LIB_DIR); \
+	mkdir -p $(RUNTIME_LIB_DIR); \
+	bash scripts/collect_runtime_libs.sh $(BIN_DIR)/assistant $(RUNTIME_LIB_DIR) "$$module_dir"; \
+	test -s $(RUNTIME_LIB_DIR)/libsherpa-onnx-c-api.so
+	@echo "✓ native runtime staged → lib/"
+
 FORCE:
 
 models: ## Download and validate default runtime models
 	@bash scripts/download_models.sh
 
-install: all ## Install binaries, config and service; does not enable service
+install: all ## Install binaries, config and user service; does not enable service
 	@bash scripts/install.sh
 
-uninstall: ## Remove binaries and service, preserving config/models
+uninstall: ## Remove binaries, libraries and service, preserving config/models
 	@bash scripts/uninstall.sh
 
 rollback: ## Restore the state before the last install
@@ -85,8 +94,8 @@ clean-llama:
 reset-llama:
 	@rm -rf $(LLAMA_DIR) $(BIN_DIR)/llama-server
 
-clean: ## Remove generated binaries and release archives
-	@rm -rf $(BIN_DIR) $(REPO_ROOT)/dist
+clean: ## Remove generated binaries, native libraries and release archives
+	@rm -rf $(BIN_DIR) $(RUNTIME_LIB_DIR) $(REPO_ROOT)/dist
 
 clean-all: clean ## Remove generated binaries and vendored llama.cpp
 	@rm -rf $(VENDOR_DIR)
