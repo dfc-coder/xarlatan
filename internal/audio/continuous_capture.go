@@ -129,10 +129,11 @@ type ContinuousRecorder struct {
 	running bool
 	closed  bool
 
-	wg        sync.WaitGroup
-	closeOnce sync.Once
-	closeErr  error
-	dropped   atomic.Uint64
+	wg         sync.WaitGroup
+	closeOnce  sync.Once
+	closeErr   error
+	dropped    atomic.Uint64
+	suppressed atomic.Bool
 }
 
 // NewContinuousRecorderWithDetector constructs the production continuous
@@ -187,6 +188,15 @@ func (r *ContinuousRecorder) Next(ctx context.Context) (Buffer, error) {
 	if err := r.ensureRunning(); err != nil {
 		return Buffer{}, err
 	}
+
+	// Prefer already-buffered speech over a terminal source error that happened
+	// after that utterance was completed.
+	select {
+	case buffer := <-r.utterances:
+		return buffer.Clone(), nil
+	default:
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -199,6 +209,16 @@ func (r *ContinuousRecorder) Next(ctx context.Context) (Buffer, error) {
 			}
 		}
 	}
+}
+
+// SetSuppressed keeps the microphone process alive while discarding frames
+// before VAD. WI-10D uses it during assistant playback to preserve half-duplex
+// echo safety; WI-11C will replace this policy with controlled barge-in.
+func (r *ContinuousRecorder) SetSuppressed(suppressed bool) {
+	if r == nil {
+		return
+	}
+	r.suppressed.Store(suppressed)
 }
 
 // DroppedUtterances reports how many oldest queued utterances were discarded
@@ -241,19 +261,30 @@ func (r *ContinuousRecorder) readLoop(process captureProcess) {
 	}
 	buffer := make([]byte, bytesPerChunk)
 	var recording []float32
+	wasSuppressed := r.suppressed.Load()
 
 	for {
 		n, readErr := io.ReadFull(process, buffer)
 		completeBytes := n - n%(pcmBytesPerSample*r.cfg.Channels)
 		if completeBytes > 0 {
-			chunk := pcmToFloat32(buffer[:completeBytes])
-			var finish bool
-			recording, finish = r.processChunk(recording, chunk)
-			if finish {
-				r.publishUtterance(recording)
+			if r.suppressed.Load() {
 				recording = nil
-				r.vad.Reset()
-				r.preRoll.reset()
+				wasSuppressed = true
+			} else {
+				if wasSuppressed {
+					r.vad.Reset()
+					r.preRoll.reset()
+					wasSuppressed = false
+				}
+				chunk := pcmToFloat32(buffer[:completeBytes])
+				var finish bool
+				recording, finish = r.processChunk(recording, chunk)
+				if finish {
+					r.publishUtterance(recording)
+					recording = nil
+					r.vad.Reset()
+					r.preRoll.reset()
+				}
 			}
 		}
 		if readErr != nil {
@@ -316,6 +347,7 @@ func (r *ContinuousRecorder) publishUtterance(samples []float32) {
 }
 
 func (r *ContinuousRecorder) sourceFailed(process captureProcess, err error) {
+	_ = process.Stop()
 	r.mu.Lock()
 	if r.process == process {
 		r.process = nil
