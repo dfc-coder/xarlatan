@@ -11,7 +11,7 @@ LLAMA_REF := b8660
 NPROC := $(shell nproc)
 CMAKE_COMMON := -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF
 GOFLAGS ?= -mod=mod
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+VERSION ?= v0.5.0-beta.1
 BUILD_VERSION := $(patsubst v%,%,$(VERSION))
 
 ifdef GGML_CUDA
