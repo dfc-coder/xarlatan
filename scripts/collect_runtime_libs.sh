@@ -45,7 +45,8 @@ copy_library() {
   local source="$2"
   [[ -n "$soname" && -n "$source" ]] || return 1
   [[ -e "$source" || -L "$source" ]] || return 1
-  install -m755 -D -L "$source" "$DESTINATION/$soname"
+  source="$(readlink -f "$source")"
+  install -Dm755 "$source" "$DESTINATION/$soname"
 }
 
 collect_from_ldd() {
