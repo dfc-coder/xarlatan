@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
-	"io"
 	"reflect"
 	"testing"
 	"time"
@@ -87,15 +86,19 @@ func TestBufferCloneIsDefensive(t *testing.T) {
 
 func TestPlayerStopsOnCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	runner := &blockingRunner{started: make(chan struct{})}
+	factory := newFakePlaybackFactory()
+	factory.blockWrites = true
 	player := NewPlayback("default", 16000, 1)
-	player.runner = runner
+	player.factory = factory
+	player.guard = playbackGuardFunc(func(context.Context) error { return nil })
+	defer player.Close()
 
 	done := make(chan error, 1)
 	go func() {
 		done <- player.Play(ctx, Buffer{Samples: []float32{0.1}, SampleRate: 16000, Channels: 1})
 	}()
-	<-runner.started
+	process := <-factory.started
+	<-process.writeStarted
 	cancel()
 
 	if err := <-done; !errors.Is(err, context.Canceled) {
@@ -116,14 +119,4 @@ func (r *cancelReader) Read([]byte) (int, error) {
 	}
 	<-r.ctx.Done()
 	return 0, r.ctx.Err()
-}
-
-type blockingRunner struct {
-	started chan struct{}
-}
-
-func (r *blockingRunner) Run(ctx context.Context, _ string, _ []string, _ io.Reader) ([]byte, error) {
-	close(r.started)
-	<-ctx.Done()
-	return nil, ctx.Err()
 }
