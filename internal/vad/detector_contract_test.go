@@ -10,7 +10,11 @@ func TestEnergyVADImplementsDetectorLifecycle(t *testing.T) {
 	called := false
 	detector.SetEventHandler(func(Event) { called = true })
 
-	detector.ProcessChunk(repeatSample(0.5, 80))
+	samples := make([]float32, 80)
+	for i := range samples {
+		samples[i] = 0.5
+	}
+	detector.ProcessChunk(samples)
 	if !called {
 		t.Fatal("SetEventHandler did not receive detector event")
 	}
