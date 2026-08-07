@@ -58,7 +58,7 @@ $(BIN_DIR)/calibrate: FORCE
 	@echo "✓ calibrate built → bin/calibrate"
 
 runtime-libs: $(BIN_DIR)/assistant FORCE ## Stage non-system CGo libraries before sudo installation
-	@module_dir="$$(go list -m -f '{{.Dir}}' github.com/k2-fsa/sherpa-onnx-go-linux)"; \
+	@module_dir="$$(go list $(GOFLAGS) -m -f '{{.Dir}}' github.com/k2-fsa/sherpa-onnx-go-linux)"; \
 	rm -rf $(RUNTIME_LIB_DIR); \
 	mkdir -p $(RUNTIME_LIB_DIR); \
 	bash scripts/collect_runtime_libs.sh $(BIN_DIR)/assistant $(RUNTIME_LIB_DIR) "$$module_dir"; \
