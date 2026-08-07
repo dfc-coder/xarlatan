@@ -32,6 +32,7 @@ type StreamingPlayer interface {
 type Coordinator struct {
 	dependencies Dependencies
 	sequence     atomic.Uint64
+	interrupts   InterruptSource
 }
 
 // NewCoordinator validates and constructs the event-driven voice coordinator.
@@ -78,6 +79,9 @@ func (c *Coordinator) Run(ctx context.Context) error {
 		if err == nil {
 			continue
 		}
+		if IsErrorCode(err, ErrorInterrupted) {
+			continue
+		}
 		if IsErrorCode(err, ErrorCancelled) || IsErrorCode(err, ErrorDeadlineExceeded) {
 			return nil
 		}
@@ -102,8 +106,9 @@ func (c *Coordinator) RunTurn(ctx context.Context) (Result, error) {
 }
 
 func (c *Coordinator) runTurn(ctx context.Context, turnID uint64, workers *workerSet) (result Result, err error) {
-	turnCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	turnCtx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	c.watchInterrupts(turnCtx, turnID, cancel)
 
 	recorder := newTurnRecorder(turnID, c.dependencies.Observer)
 	recorder.emit(StateIdle)
@@ -223,8 +228,7 @@ func (c *Coordinator) synthesizeBufferedReply(
 		return c.fail(ctx, recorder, result, ErrorPlaybackFailed, stageErr)
 	}
 	if ctxErr := ctx.Err(); ctxErr != nil {
-		recorder.emit(StateStopping)
-		return result, contextApplicationError(ctxErr)
+		return c.fail(ctx, recorder, result, ErrorAgentFailed, ctxErr)
 	}
 	result.Trace.Outcome = "success"
 	recorder.emit(StateIdle)
@@ -264,8 +268,7 @@ func (c *Coordinator) completeStreamingResponse(
 		select {
 		case <-ctx.Done():
 			c.abortStreamingPlayback(ctx, turnID, workers, state)
-			recorder.emit(StateStopping)
-			return result, contextApplicationError(ctx.Err())
+			return c.fail(ctx, recorder, result, ErrorAgentFailed, ctx.Err())
 		case <-workers.ctx.Done():
 			c.abortStreamingPlayback(ctx, turnID, workers, state)
 			return c.fail(ctx, recorder, result, ErrorAgentFailed, workers.ctx.Err())
@@ -338,8 +341,7 @@ deltasDrained:
 		}
 	}
 	if ctxErr := ctx.Err(); ctxErr != nil {
-		recorder.emit(StateStopping)
-		return result, contextApplicationError(ctxErr)
+		return c.fail(ctx, recorder, result, ErrorAgentFailed, ctxErr)
 	}
 	result.Trace.Outcome = "success"
 	recorder.emit(StateIdle)
@@ -426,6 +428,12 @@ func (c *Coordinator) abortStreamingPlayback(ctx context.Context, turnID uint64,
 }
 
 func (c *Coordinator) fail(ctx context.Context, recorder *turnRecorder, result Result, code ErrorCode, err error) (Result, error) {
+	if interruptedContext(ctx) {
+		recorder.emit(StateInterrupted)
+		result.Trace.Outcome = "interrupted"
+		result.Trace.ErrorCode = ErrorInterrupted
+		return result, interruptedApplicationError()
+	}
 	contextErr := ctx.Err()
 	if contextErr == nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
 		contextErr = err
