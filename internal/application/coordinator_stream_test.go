@@ -14,8 +14,8 @@ import (
 func TestCoordinatorStreamsPhrasesToAudioBeforeResponderCompletes(t *testing.T) {
 	firstWrite := make(chan struct{})
 	responder := &coordinatorStreamingResponder{
-		deltas:     []string{"Primera. ", "Segunda."},
-		finalReply: "Primera. Segunda.",
+		deltas:              []string{"Primera. ", "Segunda."},
+		finalReply:          "Primera. Segunda.",
 		waitAfterFirstDelta: firstWrite,
 	}
 	synthesizer := &recordingStreamingSynthesizer{}
@@ -165,13 +165,13 @@ func (s *recordingStreamingSynthesizer) snapshot() []string {
 }
 
 type recordingStreamingPlayer struct {
-	mu          sync.Mutex
-	writes      int
-	finishes    int
-	plays       int
-	stops       int
-	firstWrite  chan struct{}
-	writeOnce   sync.Once
+	mu         sync.Mutex
+	writes     int
+	finishes   int
+	plays      int
+	stops      int
+	firstWrite chan struct{}
+	writeOnce  sync.Once
 }
 
 func newRecordingStreamingPlayer(firstWrite chan struct{}) *recordingStreamingPlayer {

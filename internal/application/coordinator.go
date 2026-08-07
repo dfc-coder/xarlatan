@@ -251,9 +251,9 @@ func (c *Coordinator) completeStreamingResponse(
 ) (Result, error) {
 	state := &streamingTurnState{sentenceBuilder: newSentenceBuffer()}
 	if err := workers.submit(ctx, stageRespond, stageRequest{
-		turnID:   turnID,
-		ctx:      ctx,
-		text:     transcript,
+		turnID:    turnID,
+		ctx:       ctx,
+		text:      transcript,
 		streaming: true,
 	}); err != nil {
 		return c.fail(ctx, recorder, result, ErrorAgentFailed, err)
