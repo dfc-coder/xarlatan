@@ -48,6 +48,8 @@ jobs:
           test -f internal/vad/sherpa/silero_test.go
           test -f internal/wake/detector.go
           test -f internal/wake/detector_test.go
+          test -f internal/barge/policy.go
+          test -f internal/barge/policy_test.go
           test -f internal/audio/wi07_test.go
           test -f internal/audio/detector_test.go
           test -f internal/audio/persistent_playback_test.go
@@ -55,6 +57,7 @@ jobs:
           test -f internal/audio/continuous_capture.go
           test -f internal/audio/continuous_capture_test.go
           test -f internal/audio/continuous_playback_guard.go
+          test -f internal/audio/barge_capture_test.go
           test -f internal/conversation/session_test.go
           test -f internal/conversation/stream_test.go
           test -f internal/application/application_test.go
@@ -71,6 +74,9 @@ jobs:
           test -f internal/application/sentence_buffer_test.go
           test -f internal/application/interrupt.go
           test -f internal/application/interrupt_test.go
+          test -f internal/application/interrupt_latency_test.go
+          test -f internal/application/barge_in.go
+          test -f internal/application/barge_in_test.go
           test -f internal/application/wake.go
           test -f internal/application/wake_test.go
           test -f cmd/assistant/main_test.go
@@ -115,4 +121,5 @@ jobs:
           test -f docs/refactor/WI-10D_SPEC.md
           test -f docs/refactor/WI-11A_SPEC.md
           test -f docs/refactor/WI-11B_SPEC.md
+          test -f docs/refactor/WI-11C1_SPEC.md
           test -z "$(gofmt -l cmd internal)"
