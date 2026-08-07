@@ -1,0 +1,36 @@
+name: wi11a one-shot test debug
+
+on:
+  push:
+    branches:
+      - "agent/wi-11a-streaming-replies"
+
+permissions:
+  contents: write
+
+jobs:
+  debug:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/wi-11a-streaming-replies
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.21.x"
+      - name: Install ALSA dependency
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libasound2-dev
+      - name: Capture test output
+        run: |
+          set +e
+          go test -count=1 ./... > WI-11A_CI_DEBUG.txt 2>&1
+          rc=$?
+          printf '\nEXIT_CODE=%d\n' "$rc" >> WI-11A_CI_DEBUG.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add WI-11A_CI_DEBUG.txt
+          git commit -m "chore(WI-11A): capture temporary test output"
+          git push origin HEAD:agent/wi-11a-streaming-replies
