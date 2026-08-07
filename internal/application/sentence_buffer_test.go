@@ -51,11 +51,18 @@ func TestSentenceBufferBoundsUnpunctuatedPhrase(t *testing.T) {
 
 func TestSentenceBufferHandlesUnicodeBoundary(t *testing.T) {
 	buffer := &sentenceBuffer{maxRunes: 5}
-	phrases := buffer.Push("áéíóúñandú")
-	if len(phrases) != 1 {
-		t.Fatalf("phrases = %v, want one bounded phrase", phrases)
+	text := "áéíóúñandú"
+	phrases := buffer.Push(text)
+	phrases = append(phrases, buffer.Flush()...)
+	if len(phrases) < 2 {
+		t.Fatalf("phrases = %v, want bounded UTF-8 chunks", phrases)
 	}
-	if !strings.HasPrefix("áéíóúñandú", phrases[0]) {
-		t.Fatalf("phrase broke UTF-8: %q", phrases[0])
+	for _, phrase := range phrases {
+		if len([]rune(phrase)) > 5 {
+			t.Fatalf("phrase exceeds rune bound: %q", phrase)
+		}
+	}
+	if reconstructed := strings.Join(phrases, ""); reconstructed != text {
+		t.Fatalf("reconstructed = %q, want %q", reconstructed, text)
 	}
 }
