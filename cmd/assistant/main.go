@@ -192,7 +192,11 @@ func run() error {
 			slog.Warn("tts close", "err", err)
 		}
 	}()
-	player := audio.NewPlayback(cfg.Audio.Device, cfg.Audio.SampleRate, cfg.Audio.Channels)
+	playback := audio.NewPlayback(cfg.Audio.Device, cfg.Audio.SampleRate, cfg.Audio.Channels)
+	player, err := audio.NewResponsePlayback(playback)
+	if err != nil {
+		return fmt.Errorf("response playback: %w", err)
+	}
 	defer func() {
 		if err := player.Close(); err != nil {
 			slog.Warn("playback close", "err", err)
