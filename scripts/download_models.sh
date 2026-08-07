@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# scripts/download_models.sh — downloads default models for sherpa-onnx ASR, TTS and llama.
+# scripts/download_models.sh — downloads default VAD, ASR, TTS and llama models.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$SCRIPT_DIR/.."
 MODEL_DIR="$ROOT/models"
 
-mkdir -p "$MODEL_DIR"/{stt,tts,llm}
+mkdir -p "$MODEL_DIR"/{vad,stt,tts,llm}
 
 green() { printf '\033[32m%s\033[0m\n' "$*"; }
 cyan()  { printf '\033[36m%s\033[0m\n' "$*"; }
@@ -37,6 +37,25 @@ download_atomic() {
 
     mv -f "$tmp_file" "$destination"
 }
+
+# ── Silero VAD model ─────────────────────────────────────────────────────────
+# k2-fsa's 16 kHz export, used directly by sherpa-onnx VoiceActivityDetector.
+VAD_URL="https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx"
+VAD_SHA256="9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6"
+VAD_PATH="$MODEL_DIR/vad/silero_vad.onnx"
+
+vad_actual_sha256=""
+if [[ -s "$VAD_PATH" ]]; then
+    vad_actual_sha256="$(sha256sum "$VAD_PATH" | awk '{print $1}')"
+fi
+if [[ "$vad_actual_sha256" == "$VAD_SHA256" ]]; then
+    green "✓ Silero VAD model already present and valid"
+else
+    rm -f "$VAD_PATH"
+    cyan "Downloading Silero VAD"
+    download_atomic "$VAD_URL" "$VAD_PATH" "$VAD_SHA256"
+    green "✓ VAD: models/vad/silero_vad.onnx"
+fi
 
 # ── Sherpa STT model ──────────────────────────────────────────────────────────
 STT_MODEL="${STT_MODEL:-base}"  # tiny | base
@@ -124,8 +143,11 @@ printf '\n'
 green "All models ready."
 cat <<EOF
 
-  Suggested config.yaml entries:
-  ──────────────────────────────
+  Runtime model layout:
+  ─────────────────────
+  vad:
+    model: "models/vad/silero_vad.onnx"
+
   stt:
     encoder: "models/stt/sherpa-onnx-whisper-${STT_MODEL}/${STT_MODEL}-encoder.onnx"
     decoder: "models/stt/sherpa-onnx-whisper-${STT_MODEL}/${STT_MODEL}-decoder.onnx"

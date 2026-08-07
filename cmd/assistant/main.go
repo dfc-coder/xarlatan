@@ -20,6 +20,7 @@ import (
 	"github.com/dfc-coder/xarlatan/internal/stt"
 	"github.com/dfc-coder/xarlatan/internal/tools"
 	"github.com/dfc-coder/xarlatan/internal/tts"
+	sherpavad "github.com/dfc-coder/xarlatan/internal/vad/sherpa"
 )
 
 var (
@@ -67,6 +68,10 @@ func run() error {
 	}
 	if err := cfg.Validate(); err != nil {
 		return fmt.Errorf("config validation: %w", err)
+	}
+	vadRuntime, err := cfg.SileroVADConfig()
+	if err != nil {
+		return fmt.Errorf("vad config: %w", err)
 	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -151,7 +156,33 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("conversation session: %w", err)
 	}
-	recorder := audio.NewRecorder(cfg.Audio)
+
+	voiceDetector, err := sherpavad.New(sherpavad.Config{
+		Model:              vadRuntime.Model,
+		Threshold:          vadRuntime.Threshold,
+		MinSilenceDuration: vadRuntime.MinSilenceDuration,
+		MinSpeechDuration:  vadRuntime.MinSpeechDuration,
+		MaxSpeechDuration:  vadRuntime.MaxSpeechDuration,
+		SampleRate:         vadRuntime.SampleRate,
+		NumThreads:         vadRuntime.NumThreads,
+		Provider:           vadRuntime.Provider,
+		WindowSize:         vadRuntime.WindowSize,
+		BufferSize:         vadRuntime.BufferSize,
+	})
+	if err != nil {
+		return fmt.Errorf("vad: %w", err)
+	}
+	recorder, err := audio.NewRecorderWithDetector(cfg.Audio, voiceDetector)
+	if err != nil {
+		_ = voiceDetector.Close()
+		return fmt.Errorf("audio recorder: %w", err)
+	}
+	defer func() {
+		if err := recorder.Close(); err != nil {
+			slog.Warn("recorder close", "err", err)
+		}
+	}()
+
 	synthesizer, err := tts.New(cfg.TTS, cfg.Audio.Device)
 	if err != nil {
 		return fmt.Errorf("tts: %w", err)

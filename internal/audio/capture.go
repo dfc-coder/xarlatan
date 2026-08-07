@@ -23,27 +23,50 @@ const (
 // Recorder captures audio from the default ALSA microphone.
 type Recorder struct {
 	cfg     config.AudioConfig
-	vad     *vad.VAD
+	vad     vad.Detector
 	preRoll *preRollBuffer
 }
 
-// NewRecorder creates a new Recorder.
+// NewRecorder preserves the energy-detector constructor for calibration,
+// focused tests and compatibility. Production composition uses
+// NewRecorderWithDetector with Silero.
 func NewRecorder(cfg config.AudioConfig) *Recorder {
 	releaseThreshold := cfg.SilenceThreshold * 0.8
-	v := vad.New(cfg.SilenceThreshold, releaseThreshold, cfg.SilenceDuration(), cfg.SampleRate)
-	v.OnEvent = func(e vad.Event) {
-		switch e.Type {
-		case vad.EventVoiceDetected:
-			slog.Debug("VAD: voice detected")
-		case vad.EventSilenceStart:
-			slog.Debug("VAD: silence started")
-		case vad.EventSilenceProgress:
-			slog.Debug("VAD: silence accumulating", "ms", e.SilenceMS)
-		case vad.EventCutBySilence:
-			slog.Debug("VAD: cut by silence", "ms", e.SilenceMS)
-		}
+	detector := vad.New(cfg.SilenceThreshold, releaseThreshold, cfg.SilenceDuration(), cfg.SampleRate)
+	recorder, _ := NewRecorderWithDetector(cfg, detector)
+	return recorder
+}
+
+// NewRecorderWithDetector creates a Recorder against the VAD boundary so the
+// audio package does not depend on sherpa-onnx or another concrete detector.
+func NewRecorderWithDetector(cfg config.AudioConfig, detector vad.Detector) (*Recorder, error) {
+	if detector == nil {
+		return nil, fmt.Errorf("voice activity detector is nil")
 	}
-	return &Recorder{cfg: cfg, vad: v, preRoll: newPreRollBuffer(preRollChunkCount)}
+	detector.SetEventHandler(logVADEvent)
+	return &Recorder{cfg: cfg, vad: detector, preRoll: newPreRollBuffer(preRollChunkCount)}, nil
+}
+
+func logVADEvent(event vad.Event) {
+	switch event.Type {
+	case vad.EventSpeechStarted:
+		slog.Debug("VAD: speech started")
+	case vad.EventSilenceStart:
+		slog.Debug("VAD: silence started")
+	case vad.EventSilenceProgress:
+		slog.Debug("VAD: silence accumulating", "ms", event.SilenceMS)
+	case vad.EventSpeechEnded:
+		slog.Debug("VAD: speech ended", "silence_ms", event.SilenceMS)
+	}
+}
+
+// Close releases detector resources. It is safe for the energy detector and
+// required for native Silero VAD.
+func (r *Recorder) Close() error {
+	if r == nil || r.vad == nil {
+		return nil
+	}
+	return r.vad.Close()
 }
 
 // Next implements the application voice-input boundary.
@@ -60,6 +83,9 @@ func (r *Recorder) Next(ctx context.Context) (Buffer, error) {
 func (r *Recorder) RecordUntilSilence(ctx context.Context) ([]float32, error) {
 	if r == nil {
 		return nil, fmt.Errorf("recorder is nil")
+	}
+	if r.vad == nil {
+		return nil, fmt.Errorf("voice activity detector is nil")
 	}
 	if _, err := pcmChunkBytes(r.cfg.SampleRate, r.cfg.Channels); err != nil {
 		return nil, err

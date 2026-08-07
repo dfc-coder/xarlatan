@@ -63,6 +63,21 @@ resolve_config_path() {
   fi
 }
 
+infer_vad_model_path() {
+  local stt_encoder_path="$1"
+  local model_root
+  if [[ -n "${XARLATAN_VAD_MODEL:-}" ]]; then
+    if [[ "$XARLATAN_VAD_MODEL" = /* ]]; then
+      printf '%s' "$XARLATAN_VAD_MODEL"
+    else
+      resolve_config_path "$XARLATAN_VAD_MODEL"
+    fi
+    return
+  fi
+  model_root="$(dirname "$(dirname "$(dirname "$stt_encoder_path")")")"
+  printf '%s/vad/silero_vad.onnx' "$model_root"
+}
+
 check_command() {
   if command -v "$1" >/dev/null 2>&1; then
     pass "command available: $1"
@@ -140,9 +155,11 @@ if [[ -f "$CONFIG" ]]; then
   tts_data="$(yaml_value tts data_dir)"
   llm_host="$(yaml_value llm host)"
 
-  check_file "STT encoder" "$(resolve_config_path "$stt_encoder")"
+  stt_encoder_path="$(resolve_config_path "$stt_encoder")"
+  check_file "STT encoder" "$stt_encoder_path"
   check_file "STT decoder" "$(resolve_config_path "$stt_decoder")"
   check_file "STT tokens" "$(resolve_config_path "$stt_tokens")"
+  check_file "Silero VAD model" "$(infer_vad_model_path "$stt_encoder_path")"
   check_file "LLM model" "$(resolve_config_path "$llm_model")"
   check_file "TTS model" "$(resolve_config_path "$tts_model")"
   check_file "TTS tokens" "$(resolve_config_path "$tts_tokens")"
