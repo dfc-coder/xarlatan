@@ -141,11 +141,12 @@ func (p *Playback) Play(ctx context.Context, buffer Buffer) error {
 	if p == nil || p.guard == nil {
 		return fmt.Errorf("playback is not initialized")
 	}
+	ctx = nonNilAudioContext(ctx)
 	if err := p.Write(ctx, buffer); err != nil {
 		return err
 	}
-	if err := p.guard.Wait(nonNilAudioContext(ctx)); err != nil {
-		if ctxErr := nonNilAudioContext(ctx).Err(); ctxErr != nil {
+	if err := p.guard.Wait(ctx); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
 			_ = p.Stop()
 			return ctxErr
 		}
