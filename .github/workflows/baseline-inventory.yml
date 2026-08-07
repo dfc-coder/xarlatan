@@ -41,8 +41,9 @@ jobs:
           test -f internal/memory/memory_test.go
           test -f internal/memory/prepare_test.go
           test -f internal/vad/detector.go
-          test -f internal/vad/silero.go
-          test -f internal/vad/silero_test.go
+          test -f internal/vad/energy_compat.go
+          test -f internal/vad/sherpa/silero.go
+          test -f internal/vad/sherpa/silero_test.go
           test -f internal/audio/wi07_test.go
           test -f internal/audio/detector_test.go
           test -f internal/audio/persistent_playback_test.go
