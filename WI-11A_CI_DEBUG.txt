@@ -1,0 +1,21 @@
+?   	github.com/dfc-coder/xarlatan/cmd/calibrate	[no test files]
+ok  	github.com/dfc-coder/xarlatan/cmd/assistant	0.009s
+--- FAIL: TestSentenceBufferHandlesUnicodeBoundary (0.00s)
+    sentence_buffer_test.go:56: phrases = [áéíóú ñandú], want one bounded phrase
+FAIL
+FAIL	github.com/dfc-coder/xarlatan/internal/application	0.005s
+ok  	github.com/dfc-coder/xarlatan/internal/audio	0.005s
+ok  	github.com/dfc-coder/xarlatan/internal/config	0.015s
+ok  	github.com/dfc-coder/xarlatan/internal/console	0.004s
+ok  	github.com/dfc-coder/xarlatan/internal/conversation	0.006s
+ok  	github.com/dfc-coder/xarlatan/internal/llm	0.035s
+ok  	github.com/dfc-coder/xarlatan/internal/memory	0.014s
+ok  	github.com/dfc-coder/xarlatan/internal/orchestrator	0.048s
+ok  	github.com/dfc-coder/xarlatan/internal/stt	0.008s
+?   	github.com/dfc-coder/xarlatan/internal/tts	[no test files]
+ok  	github.com/dfc-coder/xarlatan/internal/tools	0.033s
+ok  	github.com/dfc-coder/xarlatan/internal/vad	0.002s
+ok  	github.com/dfc-coder/xarlatan/internal/vad/sherpa	0.006s
+FAIL
+
+EXIT_CODE=1
