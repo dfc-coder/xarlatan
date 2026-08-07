@@ -363,13 +363,13 @@ func (r *ContinuousRecorder) processChunk(recording, chunk []float32) ([]float32
 }
 
 type bargeCaptureState struct {
-	baseline    float64
-	warmup      int
-	loudChunks  int
-	startedAt   time.Time
-	peakRMS     float64
-	recording   []float32
-	preRoll     *preRollBuffer
+	baseline   float64
+	warmup     int
+	loudChunks int
+	startedAt  time.Time
+	peakRMS    float64
+	recording  []float32
+	preRoll    *preRollBuffer
 }
 
 func newBargeCaptureState() *bargeCaptureState {
@@ -414,7 +414,7 @@ func (r *ContinuousRecorder) processBargeChunk(state *bargeCaptureState, chunk [
 				state.peakRMS = rms
 			}
 			if state.loudChunks >= bargeTriggerChunks {
-				preRollDuration := time.Duration(bargePreRollChunks*pcmChunkMilliseconds) * time.Millisecond
+				preRollDuration := time.Duration(bargePreRollChunks*chunkDurationMS) * time.Millisecond
 				state.startedAt = time.Now().Add(-preRollDuration)
 				state.recording = state.preRoll.startRecording(chunk)
 				state.preRoll.reset()

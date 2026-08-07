@@ -447,6 +447,7 @@ func (c *Coordinator) fail(ctx context.Context, recorder *turnRecorder, result R
 		recorder.emit(StateInterrupted)
 		result.Trace.Outcome = "interrupted"
 		result.Trace.ErrorCode = ErrorInterrupted
+		result.Trace.InterruptLatency = interruptLatency(ctx)
 		return result, interruptedApplicationError()
 	}
 	contextErr := ctx.Err()

@@ -120,6 +120,7 @@ type Trace struct {
 	TotalDuration      time.Duration
 	FirstResponseDelta time.Duration
 	FirstAudio         time.Duration
+	InterruptLatency   time.Duration
 	SampleCount        int
 	TranscriptChars    int
 	ReplyChars         int
