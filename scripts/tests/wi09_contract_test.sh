@@ -57,11 +57,14 @@ assert_contains "$ROOT/scripts/beta_acceptance.sh" 'CONFIG_AUDIO_DEVICE'
 assert_contains "$ROOT/scripts/beta_acceptance.sh" 'The report contains no transcript'
 assert_contains "$ROOT/scripts/preflight.sh" 'env -u LD_LIBRARY_PATH'
 assert_contains "$ROOT/scripts/preflight.sh" 'PipeWire user session available'
+assert_contains "$ROOT/scripts/preflight.sh" 'Silero VAD model'
 assert_contains "$ROOT/internal/audio/playback.go" 'guard.Wait(ctx)'
 assert_contains "$ROOT/internal/audio/rearm.go" 'defaultRearmCooldown  = 700 * time.Millisecond'
 assert_contains "$ROOT/internal/audio/rearm.go" 'defaultStableSilence  = 560 * time.Millisecond'
 assert_contains "$ROOT/internal/stt/stt.go" 'filterTranscript(stream.GetResult().Text)'
 assert_contains "$ROOT/internal/stt/filter_test.go" '[Música]'
+assert_contains "$ROOT/scripts/download_models.sh" 'silero_vad.onnx'
+assert_contains "$ROOT/scripts/download_models.sh" '9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6'
 assert_contains "$ROOT/scripts/download_models.sh" 'Qwen/Qwen2.5-0.5B-Instruct-GGUF'
 assert_contains "$ROOT/scripts/download_models.sh" 'qwen2.5-0.5b-instruct-q4_k_m.gguf'
 assert_contains "$ROOT/scripts/download_models.sh" '74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db'
@@ -78,7 +81,8 @@ assert_not_contains "$ROOT/packaging/config.yaml" 'gemma-3-270m-it-Q4_K_M.gguf'
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
-mkdir -p "$TMP/bin" "$TMP/models/stt" "$TMP/models/llm" "$TMP/models/tts/espeak-ng-data"
+mkdir -p "$TMP/bin" "$TMP/models/vad" "$TMP/models/stt" "$TMP/models/llm" "$TMP/models/tts/espeak-ng-data"
+printf x > "$TMP/models/vad/silero_vad.onnx"
 for file in encoder.onnx decoder.onnx tokens.txt; do printf x > "$TMP/models/stt/$file"; done
 printf x > "$TMP/models/llm/model.gguf"
 printf x > "$TMP/models/tts/model.onnx"
