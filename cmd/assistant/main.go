@@ -12,6 +12,7 @@ import (
 
 	"github.com/dfc-coder/xarlatan/internal/application"
 	"github.com/dfc-coder/xarlatan/internal/audio"
+	"github.com/dfc-coder/xarlatan/internal/barge"
 	"github.com/dfc-coder/xarlatan/internal/config"
 	"github.com/dfc-coder/xarlatan/internal/console"
 	"github.com/dfc-coder/xarlatan/internal/conversation"
@@ -32,6 +33,7 @@ var (
 	wakeEnabled     = flag.Bool("wake", true, "require wake word before each voice command")
 	wakeWord        = flag.String("wake-word", "xarlatan", "primary wake word or phrase")
 	wakeAliases     = flag.String("wake-aliases", "charlatan,charlatán", "comma-separated wake aliases")
+	bargeEnabled    = flag.Bool("barge-in", true, "allow wake-qualified voice stop during playback")
 	maxToolRounds   = flag.Int("max-tool-rounds", 4, "maximum tool rounds per user turn")
 	maxHistoryBytes = flag.Int("max-history-bytes", 12_288, "maximum JSON bytes retained in conversation history")
 	maxSummaryBytes = flag.Int("max-summary-bytes", 2_048, "maximum bytes retained in the untrusted memory summary")
@@ -223,12 +225,24 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("voice coordinator: %w", err)
 	}
+
+	wakeDetector, err := wake.NewPhraseDetector(*wakeWord, splitWakeAliases(*wakeAliases))
+	if err != nil {
+		return fmt.Errorf("wake detector: %w", err)
+	}
 	if *wakeEnabled {
-		wakeDetector, err := wake.NewPhraseDetector(*wakeWord, splitWakeAliases(*wakeAliases))
-		if err != nil {
-			return fmt.Errorf("wake detector: %w", err)
-		}
 		voiceCoordinator.SetWakeDetector(wakeDetector)
+	}
+	if *bargeEnabled {
+		bargeController, err := application.NewBargeInController(
+			recorder,
+			transcriber,
+			barge.NewExplicitStopPolicy(wakeDetector),
+		)
+		if err != nil {
+			return fmt.Errorf("barge-in controller: %w", err)
+		}
+		voiceCoordinator.SetInterruptSource(bargeController)
 	}
 	return voiceCoordinator.Run(ctx)
 }

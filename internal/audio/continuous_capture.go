@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/exec"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/dfc-coder/xarlatan/internal/config"
 	"github.com/dfc-coder/xarlatan/internal/vad"
@@ -17,6 +19,14 @@ import (
 const (
 	defaultContinuousPreRollChunks = 4
 	defaultUtteranceQueueDepth     = 4
+	defaultBargeCandidateDepth     = 2
+	bargePreRollChunks             = 2
+	bargeWarmupChunks              = 3
+	bargeTriggerChunks             = 2
+	bargeRelativeGain              = 1.65
+	bargeAbsoluteRMS               = 0.025
+	bargeBaselineAlpha             = 0.08
+	bargeMaxDuration               = 2 * time.Second
 )
 
 // ContinuousOptions bounds the only retained raw-audio windows in continuous
@@ -31,6 +41,14 @@ func defaultContinuousOptions() ContinuousOptions {
 		PreRollChunks: defaultContinuousPreRollChunks,
 		QueueDepth:    defaultUtteranceQueueDepth,
 	}
+}
+
+// BargeCandidate is private data-plane audio captured while the assistant is
+// speaking. It is intentionally bounded and never emitted as an observer event.
+type BargeCandidate struct {
+	Buffer    Buffer
+	StartedAt time.Time
+	PeakRMS   float64
 }
 
 type captureProcess interface {
@@ -121,8 +139,9 @@ type ContinuousRecorder struct {
 	preRoll *preRollBuffer
 	factory captureProcessFactory
 
-	utterances chan Buffer
-	sourceErr  chan error
+	utterances      chan Buffer
+	bargeCandidates chan BargeCandidate
+	sourceErr       chan error
 
 	mu      sync.Mutex
 	process captureProcess
@@ -166,12 +185,13 @@ func newContinuousRecorder(
 	}
 	detector.SetEventHandler(logVADEvent)
 	return &ContinuousRecorder{
-		cfg:        cfg,
-		vad:        detector,
-		preRoll:    newPreRollBuffer(options.PreRollChunks),
-		factory:    factory,
-		utterances: make(chan Buffer, options.QueueDepth),
-		sourceErr:  make(chan error, 1),
+		cfg:             cfg,
+		vad:             detector,
+		preRoll:         newPreRollBuffer(options.PreRollChunks),
+		factory:         factory,
+		utterances:      make(chan Buffer, options.QueueDepth),
+		bargeCandidates: make(chan BargeCandidate, defaultBargeCandidateDepth),
+		sourceErr:       make(chan error, 1),
 	}, nil
 }
 
@@ -212,14 +232,27 @@ func (r *ContinuousRecorder) Next(ctx context.Context) (Buffer, error) {
 	}
 }
 
-// SetSuppressed keeps the microphone process alive while discarding frames
-// before VAD. WI-10D uses it during assistant playback to preserve half-duplex
-// echo safety; WI-11C will replace this policy with controlled barge-in.
+// BargeCandidates exposes a bounded private audio stream for the barge-in
+// controller. Candidates are produced only while SetSuppressed(true) is active.
+func (r *ContinuousRecorder) BargeCandidates() <-chan BargeCandidate {
+	if r == nil {
+		return nil
+	}
+	return r.bargeCandidates
+}
+
+// SetSuppressed is retained as the WI-10D compatibility name. In WI-11C it
+// means "assistant is speaking": normal utterances remain suppressed, while a
+// stricter acoustic path may publish bounded barge-in candidates for textual
+// confirmation. Returning to false flushes stale candidates.
 func (r *ContinuousRecorder) SetSuppressed(suppressed bool) {
 	if r == nil {
 		return
 	}
 	r.suppressed.Store(suppressed)
+	if !suppressed {
+		r.flushBargeCandidates()
+	}
 }
 
 // DroppedUtterances reports how many oldest queued utterances were discarded
@@ -263,21 +296,33 @@ func (r *ContinuousRecorder) readLoop(process captureProcess) {
 	buffer := make([]byte, bytesPerChunk)
 	var recording []float32
 	wasSuppressed := r.suppressed.Load()
+	barge := newBargeCaptureState()
 
 	for {
 		n, readErr := io.ReadFull(process, buffer)
 		completeBytes := n - n%(pcmBytesPerSample*r.cfg.Channels)
 		if completeBytes > 0 {
+			chunk := pcmToFloat32(buffer[:completeBytes])
 			if r.suppressed.Load() {
+				if !wasSuppressed {
+					r.vad.Reset()
+					r.preRoll.reset()
+					barge.reset()
+					wasSuppressed = true
+				}
 				recording = nil
-				wasSuppressed = true
+				if candidate, ready := r.processBargeChunk(barge, chunk); ready {
+					r.publishBargeCandidate(candidate)
+					r.vad.Reset()
+					barge.reset()
+				}
 			} else {
 				if wasSuppressed {
 					r.vad.Reset()
 					r.preRoll.reset()
+					barge.reset()
 					wasSuppressed = false
 				}
-				chunk := pcmToFloat32(buffer[:completeBytes])
 				var finish bool
 				recording, finish = r.processChunk(recording, chunk)
 				if finish {
@@ -317,6 +362,109 @@ func (r *ContinuousRecorder) processChunk(recording, chunk []float32) ([]float32
 	return recording, shouldFinish
 }
 
+type bargeCaptureState struct {
+	baseline   float64
+	warmup     int
+	loudChunks int
+	startedAt  time.Time
+	peakRMS    float64
+	recording  []float32
+	preRoll    *preRollBuffer
+}
+
+func newBargeCaptureState() *bargeCaptureState {
+	state := &bargeCaptureState{preRoll: newPreRollBuffer(bargePreRollChunks)}
+	state.reset()
+	return state
+}
+
+func (s *bargeCaptureState) reset() {
+	if s == nil {
+		return
+	}
+	s.baseline = 0
+	s.warmup = 0
+	s.loudChunks = 0
+	s.startedAt = time.Time{}
+	s.peakRMS = 0
+	s.recording = nil
+	if s.preRoll != nil {
+		s.preRoll.reset()
+	}
+}
+
+func (r *ContinuousRecorder) processBargeChunk(state *bargeCaptureState, chunk []float32) (BargeCandidate, bool) {
+	if state == nil || len(chunk) == 0 {
+		return BargeCandidate{}, false
+	}
+	rms := chunkRMS(chunk)
+	isSpeaking, shouldFinish := r.vad.ProcessChunk(chunk)
+
+	if len(state.recording) == 0 {
+		if state.warmup < bargeWarmupChunks {
+			state.baseline = updateBargeBaseline(state.baseline, rms)
+			state.warmup++
+			state.preRoll.add(chunk)
+			return BargeCandidate{}, false
+		}
+		threshold := math.Max(bargeAbsoluteRMS, state.baseline*bargeRelativeGain)
+		if isSpeaking && rms >= threshold {
+			state.loudChunks++
+			if rms > state.peakRMS {
+				state.peakRMS = rms
+			}
+			if state.loudChunks >= bargeTriggerChunks {
+				preRollDuration := time.Duration(bargePreRollChunks*chunkDurationMS) * time.Millisecond
+				state.startedAt = time.Now().Add(-preRollDuration)
+				state.recording = state.preRoll.startRecording(chunk)
+				state.preRoll.reset()
+				return BargeCandidate{}, false
+			}
+			state.preRoll.add(chunk)
+			return BargeCandidate{}, false
+		}
+
+		state.loudChunks = 0
+		state.baseline = updateBargeBaseline(state.baseline, rms)
+		state.preRoll.add(chunk)
+		return BargeCandidate{}, false
+	}
+
+	state.recording = append(state.recording, chunk...)
+	if rms > state.peakRMS {
+		state.peakRMS = rms
+	}
+	maxSamples := int(float64(r.cfg.SampleRate*r.cfg.Channels) * bargeMaxDuration.Seconds())
+	if !shouldFinish && len(state.recording) < maxSamples {
+		return BargeCandidate{}, false
+	}
+	buffer := Buffer{
+		Samples:    append([]float32(nil), state.recording...),
+		SampleRate: r.cfg.SampleRate,
+		Channels:   r.cfg.Channels,
+	}
+	return BargeCandidate{Buffer: buffer, StartedAt: state.startedAt, PeakRMS: state.peakRMS}, true
+}
+
+func updateBargeBaseline(current, sample float64) float64 {
+	if current <= 0 {
+		return sample
+	}
+	return current*(1-bargeBaselineAlpha) + sample*bargeBaselineAlpha
+}
+
+func chunkRMS(samples []float32) float64 {
+	if len(samples) == 0 {
+		return 0
+	}
+	var sum float64
+	for _, sample := range samples {
+		v := float64(sample)
+		sum += v * v
+	}
+	return math.Sqrt(sum / float64(len(samples)))
+}
+
 func (r *ContinuousRecorder) publishUtterance(samples []float32) {
 	minimumSamples := r.cfg.SampleRate * r.cfg.Channels / 4
 	if len(samples) < minimumSamples {
@@ -344,6 +492,35 @@ func (r *ContinuousRecorder) publishUtterance(samples []float32) {
 	default:
 		// A concurrent consumer may race with the replacement; boundedness wins.
 		r.dropped.Add(1)
+	}
+}
+
+func (r *ContinuousRecorder) publishBargeCandidate(candidate BargeCandidate) {
+	if candidate.Buffer.Empty() || candidate.StartedAt.IsZero() {
+		return
+	}
+	select {
+	case r.bargeCandidates <- candidate:
+		return
+	default:
+	}
+	select {
+	case <-r.bargeCandidates:
+	default:
+	}
+	select {
+	case r.bargeCandidates <- candidate:
+	default:
+	}
+}
+
+func (r *ContinuousRecorder) flushBargeCandidates() {
+	for {
+		select {
+		case <-r.bargeCandidates:
+		default:
+			return
+		}
 	}
 }
 
