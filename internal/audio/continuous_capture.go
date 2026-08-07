@@ -185,16 +185,17 @@ func (r *ContinuousRecorder) Next(ctx context.Context) (Buffer, error) {
 	if err := ctx.Err(); err != nil {
 		return Buffer{}, err
 	}
-	if err := r.ensureRunning(); err != nil {
-		return Buffer{}, err
-	}
 
-	// Prefer already-buffered speech over a terminal source error that happened
-	// after that utterance was completed.
+	// Prefer already-buffered speech before deciding whether the source needs
+	// restart. This preserves a completed utterance if arecord ended immediately
+	// after publishing it and avoids a redundant capture process.
 	select {
 	case buffer := <-r.utterances:
 		return buffer.Clone(), nil
 	default:
+	}
+	if err := r.ensureRunning(); err != nil {
+		return Buffer{}, err
 	}
 
 	for {
