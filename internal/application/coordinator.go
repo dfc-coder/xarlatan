@@ -33,6 +33,7 @@ type Coordinator struct {
 	dependencies Dependencies
 	sequence     atomic.Uint64
 	interrupts   InterruptSource
+	wake         WakeDetector
 }
 
 // NewCoordinator validates and constructs the event-driven voice coordinator.
@@ -153,6 +154,11 @@ func (c *Coordinator) runTurn(ctx context.Context, turnID uint64, workers *worke
 		return result, nil
 	}
 	result.Trace.TranscriptChars = len(transcript)
+	var accepted bool
+	transcript, accepted = c.applyWakeGate(transcript, recorder, &result)
+	if !accepted {
+		return result, nil
+	}
 	c.dependencies.View.ShowUser(transcript)
 
 	recorder.emit(StateThinking)
