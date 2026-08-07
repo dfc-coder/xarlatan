@@ -416,7 +416,7 @@ func (c *Coordinator) streamingStageFailure(ctx context.Context, recorder *turnR
 }
 
 func (c *Coordinator) abortStreamingPlayback(ctx context.Context, turnID uint64, workers *workerSet, state *streamingTurnState) {
-	if state == nil || !state.wroteAudio || workers == nil {
+	if state == nil || !state.speakingState || workers == nil {
 		return
 	}
 	stopCtx := nonNilContext(ctx)
@@ -425,6 +425,7 @@ func (c *Coordinator) abortStreamingPlayback(ctx context.Context, turnID uint64,
 	}
 	_, _ = workers.execute(stopCtx, stagePlaybackStop, stageRequest{turnID: turnID, ctx: stopCtx})
 	state.wroteAudio = false
+	state.speakingState = false
 }
 
 func (c *Coordinator) fail(ctx context.Context, recorder *turnRecorder, result Result, code ErrorCode, err error) (Result, error) {
