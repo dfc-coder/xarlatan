@@ -27,6 +27,7 @@ func (execRunner) Run(ctx context.Context, name string, args []string, stdin io.
 
 type playbackProcess interface {
 	Write([]byte) (int, error)
+	Drain() error
 	Stop() error
 }
 
@@ -61,11 +62,14 @@ func (execPlaybackProcessFactory) Start(device string, sampleRate, channels int)
 }
 
 type execPlaybackProcess struct {
-	cmd      *exec.Cmd
-	stdin    io.WriteCloser
-	done     chan error
-	stopOnce sync.Once
-	stopErr  error
+	cmd       *exec.Cmd
+	stdin     io.WriteCloser
+	done      chan error
+	inputOnce sync.Once
+	killOnce  sync.Once
+	waitOnce  sync.Once
+	waitErr   error
+	killErr   error
 }
 
 func (p *execPlaybackProcess) Write(data []byte) (int, error) {
@@ -75,34 +79,64 @@ func (p *execPlaybackProcess) Write(data []byte) (int, error) {
 	return p.stdin.Write(data)
 }
 
+func (p *execPlaybackProcess) closeInput() {
+	if p == nil {
+		return
+	}
+	p.inputOnce.Do(func() {
+		if p.stdin != nil {
+			_ = p.stdin.Close()
+		}
+	})
+}
+
+func (p *execPlaybackProcess) wait() error {
+	if p == nil {
+		return nil
+	}
+	p.waitOnce.Do(func() {
+		if p.done == nil {
+			return
+		}
+		if err, ok := <-p.done; ok {
+			p.waitErr = err
+		}
+	})
+	return p.waitErr
+}
+
+// Drain closes stdin and waits for aplay to consume all queued PCM and exit.
+func (p *execPlaybackProcess) Drain() error {
+	if p == nil {
+		return nil
+	}
+	p.closeInput()
+	if err := p.wait(); err != nil {
+		return fmt.Errorf("aplay drain: %w", err)
+	}
+	return nil
+}
+
+// Stop aborts playback immediately and waits for process collection.
 func (p *execPlaybackProcess) Stop() error {
 	if p == nil {
 		return nil
 	}
-	p.stopOnce.Do(func() {
-		if p.stdin != nil {
-			_ = p.stdin.Close()
-		}
+	p.closeInput()
+	p.killOnce.Do(func() {
 		if p.cmd != nil && p.cmd.Process != nil {
 			if err := p.cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
-				p.stopErr = err
-			}
-		}
-		if p.done != nil {
-			if err, ok := <-p.done; ok && err != nil {
-				var exitErr *exec.ExitError
-				if !errors.As(err, &exitErr) && p.stopErr == nil {
-					p.stopErr = err
-				}
+				p.killErr = err
 			}
 		}
 	})
-	return p.stopErr
+	_ = p.wait()
+	return p.killErr
 }
 
-// Playback owns a reusable ALSA playback session. Play remains the complete
-// response API while Write/Stop/Close provide the primitives needed by later
-// streaming and barge-in slices.
+// Playback owns one reusable ALSA playback session for the duration of a
+// response. Write appends chunks, Finish drains audible playback and runs the
+// microphone rearm guard, and Stop provides the immediate barge-in primitive.
 type Playback struct {
 	device     string
 	sampleRate int
@@ -120,7 +154,8 @@ type Playback struct {
 }
 
 // NewPlayback creates a half-duplex Playback instance. The underlying aplay
-// process is started lazily and reused while the PCM format remains compatible.
+// process is started lazily and reused by all compatible Write calls until
+// Finish, Stop, a format change or Close.
 func NewPlayback(device string, sampleRate, channels int) *Playback {
 	return &Playback{
 		device:     device,
@@ -132,32 +167,21 @@ func NewPlayback(device string, sampleRate, channels int) *Playback {
 	}
 }
 
-// Play writes one normalized audio buffer to the persistent playback session
-// and preserves the existing half-duplex microphone rearm contract.
+// Play preserves the complete-response API by writing one buffer and then
+// waiting for audible playback to drain before rearming the microphone.
 func (p *Playback) Play(ctx context.Context, buffer Buffer) error {
 	if buffer.Empty() {
 		return nil
-	}
-	if p == nil || p.guard == nil {
-		return fmt.Errorf("playback is not initialized")
 	}
 	ctx = nonNilAudioContext(ctx)
 	if err := p.Write(ctx, buffer); err != nil {
 		return err
 	}
-	if err := p.guard.Wait(ctx); err != nil {
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			_ = p.Stop()
-			return ctxErr
-		}
-		return fmt.Errorf("post-playback guard: %w", err)
-	}
-	return nil
+	return p.Finish(ctx)
 }
 
-// Write appends PCM to the reusable playback process without running the
-// post-playback guard. Streaming callers can issue multiple writes and let the
-// coordinator decide when a response is complete.
+// Write appends PCM to the reusable playback process without draining or
+// running the post-playback guard. Streaming callers issue one Write per chunk.
 func (p *Playback) Write(ctx context.Context, buffer Buffer) error {
 	if buffer.Empty() {
 		return nil
@@ -191,18 +215,59 @@ func (p *Playback) Write(ctx context.Context, buffer Buffer) error {
 	return nil
 }
 
-// Stop immediately discards the active playback session. A later Write lazily
-// starts a fresh process, which is the primitive used by future barge-in.
-func (p *Playback) Stop() error {
-	if p == nil {
-		return nil
+// Finish ends the current response: it gracefully closes the playback input,
+// waits until queued audio has been consumed, and only then rearms the mic.
+func (p *Playback) Finish(ctx context.Context) error {
+	if p == nil || p.guard == nil {
+		return fmt.Errorf("playback is not initialized")
 	}
+	ctx = nonNilAudioContext(ctx)
+	if err := ctx.Err(); err != nil {
+		_ = p.Stop()
+		return err
+	}
+
+	p.writeMu.Lock()
 	p.mu.Lock()
 	session := p.session
 	p.session = nil
 	p.rate = 0
 	p.ch = 0
 	p.mu.Unlock()
+	p.writeMu.Unlock()
+
+	if session == nil {
+		return nil
+	}
+	if err := drainPlaybackProcess(ctx, session); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		return err
+	}
+	if err := p.guard.Wait(ctx); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		return fmt.Errorf("post-playback guard: %w", err)
+	}
+	return nil
+}
+
+// Stop immediately discards the active playback session. A later Write lazily
+// starts a fresh process, which is the primitive used by future barge-in.
+func (p *Playback) Stop() error {
+	if p == nil {
+		return nil
+	}
+	p.writeMu.Lock()
+	p.mu.Lock()
+	session := p.session
+	p.session = nil
+	p.rate = 0
+	p.ch = 0
+	p.mu.Unlock()
+	p.writeMu.Unlock()
 	if session == nil {
 		return nil
 	}
@@ -215,9 +280,11 @@ func (p *Playback) Close() error {
 	if p == nil {
 		return nil
 	}
+	p.writeMu.Lock()
 	p.mu.Lock()
 	if p.closed {
 		p.mu.Unlock()
+		p.writeMu.Unlock()
 		return nil
 	}
 	p.closed = true
@@ -226,6 +293,7 @@ func (p *Playback) Close() error {
 	p.rate = 0
 	p.ch = 0
 	p.mu.Unlock()
+	p.writeMu.Unlock()
 	if session == nil {
 		return nil
 	}
@@ -297,6 +365,22 @@ func writePlaybackProcess(ctx context.Context, process playbackProcess, data []b
 	}
 }
 
+func drainPlaybackProcess(ctx context.Context, process playbackProcess) error {
+	if process == nil {
+		return nil
+	}
+	done := make(chan error, 1)
+	go func() { done <- process.Drain() }()
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		_ = process.Stop()
+		<-done
+		return ctx.Err()
+	}
+}
+
 func nonNilAudioContext(ctx context.Context) context.Context {
 	if ctx == nil {
 		return context.Background()
@@ -305,7 +389,7 @@ func nonNilAudioContext(ctx context.Context) context.Context {
 }
 
 // PlayRaw preserves the legacy one-shot raw-PCM entry point for callers outside
-// the voice application. New streaming code should use Write.
+// the voice application. New streaming code should use Write/Finish.
 func (p *Playback) PlayRaw(pcm []byte) error {
 	if len(pcm) == 0 {
 		return nil
