@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.5.0-beta.1
+
+- Event-driven Coordinator with persistent workers and TurnID cancellation.
+- Persistent playback and sentence-level LLM-to-TTS streaming.
+- Silero VAD with single continuous microphone capture and bounded pre-roll.
+- Transcript wake gate and bounded partial/final STT preview semantics.
+- Wake-qualified physical barge-in with conservative echo candidate filtering.
+- Dedicated physical acceptance for continuous capture, wake, partial STT, interruption recovery and self-trigger regression.
+
 ## v0.4.0-beta.1 — 2026-08-06
 
 Primera beta candidata después del refactor operativo WI-00..WI-09.
