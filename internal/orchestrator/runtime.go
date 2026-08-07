@@ -22,6 +22,18 @@ type Generator interface {
 	) (reply string, toolLog string, nextHistory []llm.Message, err error)
 }
 
+// StreamingGenerator is an optional extension implemented by generators that
+// can expose content deltas while preserving the same final Generate result.
+type StreamingGenerator interface {
+	GenerateStream(
+		ctx context.Context,
+		history []llm.Message,
+		userText string,
+		registry *tools.Registry,
+		onDelta llm.ContentDelta,
+	) (reply string, toolLog string, nextHistory []llm.Message, err error)
+}
+
 // RuntimeConfig bounds the agent loop.
 type RuntimeConfig struct {
 	MaxToolRounds int
@@ -125,10 +137,30 @@ func NewAgentRuntime(
 // Run executes model and tool rounds until a direct reply, cancellation, model
 // failure or configured tool-round limit is reached.
 func (r *AgentRuntime) Run(ctx context.Context, request Request) (Result, error) {
+	return r.run(ctx, request, nil)
+}
+
+// RunStream executes the same single agent loop as Run while publishing safe
+// direct-reply deltas when the model supports streaming. If any tools are
+// exposed, the callback is suppressed for the whole turn so planning content
+// can never escape before tool-call resolution.
+func (r *AgentRuntime) RunStream(ctx context.Context, request Request, onDelta llm.ContentDelta) (Result, error) {
+	return r.run(ctx, request, onDelta)
+}
+
+func (r *AgentRuntime) run(ctx context.Context, request Request, onDelta llm.ContentDelta) (Result, error) {
 	result := Result{History: cloneMessages(request.History)}
 	if r == nil || r.model == nil || r.config.MaxToolRounds <= 0 {
 		err := &RuntimeError{Code: RuntimeInvalidRuntime, Err: fmt.Errorf("runtime is not initialized")}
 		return result, err
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	streamDelta := onDelta
+	if r.registry != nil && len(r.registry.Definitions()) > 0 {
+		streamDelta = nil
 	}
 
 	input := request.Input
@@ -140,7 +172,14 @@ func (r *AgentRuntime) Run(ctx context.Context, request Request) (Result, error)
 
 		roundStarted := time.Now()
 		modelStarted := time.Now()
-		reply, _, nextHistory, err := r.model.Generate(ctx, result.History, input, r.registry)
+		var reply string
+		var nextHistory []llm.Message
+		var err error
+		if streamingModel, ok := r.model.(StreamingGenerator); ok && streamDelta != nil {
+			reply, _, nextHistory, err = streamingModel.GenerateStream(ctx, result.History, input, r.registry, streamDelta)
+		} else {
+			reply, _, nextHistory, err = r.model.Generate(ctx, result.History, input, r.registry)
+		}
 		round := RoundTrace{
 			Number:        roundNumber,
 			ModelDuration: positiveDuration(time.Since(modelStarted)),

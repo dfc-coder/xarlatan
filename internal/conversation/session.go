@@ -24,6 +24,12 @@ type Agent interface {
 	Run(context.Context, orchestrator.Request) (orchestrator.Result, error)
 }
 
+// StreamingAgent is an optional Agent extension. Session preserves the same
+// memory transaction and uses it only to expose direct-reply deltas early.
+type StreamingAgent interface {
+	RunStream(context.Context, orchestrator.Request, llm.ContentDelta) (orchestrator.Result, error)
+}
+
 // ErrorCode classifies session failures without conversation content.
 type ErrorCode string
 
@@ -93,6 +99,17 @@ func New(manager Memory, agent Agent) (*Session, error) {
 // Respond executes exactly one AgentRuntime turn and publishes only committed
 // memory. Partial agent history is never returned on failure.
 func (s *Session) Respond(ctx context.Context, text string) (Result, error) {
+	return s.respond(ctx, text, nil)
+}
+
+// RespondStream preserves Respond's memory transaction while forwarding safe
+// direct-reply model deltas. A non-streaming Agent automatically falls back to
+// the buffered path and still returns the same final Result.
+func (s *Session) RespondStream(ctx context.Context, text string, onDelta llm.ContentDelta) (Result, error) {
+	return s.respond(ctx, text, onDelta)
+}
+
+func (s *Session) respond(ctx context.Context, text string, onDelta llm.ContentDelta) (Result, error) {
 	if s == nil || s.memory == nil || s.agent == nil {
 		return Result{}, &Error{Code: ErrorInvalidSession, Err: fmt.Errorf("session is not initialized")}
 	}
@@ -115,7 +132,13 @@ func (s *Session) Respond(ctx context.Context, text string) (Result, error) {
 		return Result{}, &Error{Code: ErrorMemoryPrepare, Err: err}
 	}
 
-	turn, err := s.agent.Run(ctx, orchestrator.Request{Input: text, History: prepared.History})
+	request := orchestrator.Request{Input: text, History: prepared.History}
+	var turn orchestrator.Result
+	if streamingAgent, ok := s.agent.(StreamingAgent); ok && onDelta != nil {
+		turn, err = streamingAgent.RunStream(ctx, request, onDelta)
+	} else {
+		turn, err = s.agent.Run(ctx, request)
+	}
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return Result{}, contextError(ctxErr)

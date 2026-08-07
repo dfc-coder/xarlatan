@@ -26,6 +26,11 @@ type Message struct {
 	ToolCallID string           `json:"tool_call_id,omitempty"`
 }
 
+// ContentDelta receives one non-empty content fragment from the model stream.
+// Returning an error aborts stream consumption and propagates cancellation or
+// downstream backpressure to the caller.
+type ContentDelta func(string) error
+
 type chatRequest struct {
 	Messages    []Message          `json:"messages"`
 	Tools       []tools.Definition `json:"tools,omitempty"`
@@ -172,6 +177,18 @@ func defaultRequestFactory(ctx context.Context, method, target string, body []by
 // Generate runs a single model call and returns the response, tool-call log,
 // and next immutable conversation history.
 func (c *Client) Generate(ctx context.Context, history []Message, userText string, registry *tools.Registry) (string, string, []Message, error) {
+	return c.generate(ctx, history, userText, registry, nil)
+}
+
+// GenerateStream preserves Generate semantics while publishing direct-reply
+// content deltas as they arrive. When tools are exposed to the model, deltas
+// are deliberately suppressed so a speculative planning round can never be
+// spoken before the runtime knows whether it contains tool calls.
+func (c *Client) GenerateStream(ctx context.Context, history []Message, userText string, registry *tools.Registry, onDelta ContentDelta) (string, string, []Message, error) {
+	return c.generate(ctx, history, userText, registry, onDelta)
+}
+
+func (c *Client) generate(ctx context.Context, history []Message, userText string, registry *tools.Registry, onDelta ContentDelta) (string, string, []Message, error) {
 	if c == nil {
 		return "", "", nil, fmt.Errorf("llm client is nil")
 	}
@@ -180,7 +197,7 @@ func (c *Client) Generate(ctx context.Context, history []Message, userText strin
 		nextHistory = append(nextHistory, Message{Role: "user", Content: userText})
 	}
 
-	content, calls, err := c.callLLM(ctx, nextHistory, registry)
+	content, calls, err := c.callLLM(ctx, nextHistory, registry, onDelta)
 	if err != nil {
 		return "", "", nil, err
 	}
@@ -194,7 +211,7 @@ func (c *Client) Generate(ctx context.Context, history []Message, userText strin
 	return content, tools.FormatToolCalls(calls), nextHistory, nil
 }
 
-func (c *Client) callLLM(ctx context.Context, history []Message, registry *tools.Registry) (content string, calls []tools.ToolCall, err error) {
+func (c *Client) callLLM(ctx context.Context, history []Message, registry *tools.Registry, onDelta ContentDelta) (content string, calls []tools.ToolCall, err error) {
 	reqPayload := chatRequest{
 		Messages:    history,
 		Temperature: c.temperature,
@@ -202,10 +219,12 @@ func (c *Client) callLLM(ctx context.Context, history []Message, registry *tools
 		MaxTokens:   c.maxTokens,
 		Stream:      true,
 	}
+	streamDelta := onDelta
 	if registry != nil {
 		if definitions := registry.Definitions(); len(definitions) > 0 {
 			reqPayload.Tools = definitions
 			reqPayload.ToolChoice = "auto"
+			streamDelta = nil
 		}
 	}
 
@@ -239,11 +258,15 @@ func (c *Client) callLLM(ctx context.Context, history []Message, registry *tools
 		}
 		return "", nil, fmt.Errorf("llama-server status %d: %s", resp.StatusCode, strings.TrimSpace(string(payload)))
 	}
-	return parseStream(resp.Body)
+	return parseStreamWithDelta(resp.Body, streamDelta)
 }
 
 // parseStream reads SSE and reassembles streamed tool-call argument fragments.
 func parseStream(r io.Reader) (content string, calls []tools.ToolCall, err error) {
+	return parseStreamWithDelta(r, nil)
+}
+
+func parseStreamWithDelta(r io.Reader, onDelta ContentDelta) (content string, calls []tools.ToolCall, err error) {
 	type partial struct {
 		id, typ, name string
 		args          strings.Builder
@@ -266,6 +289,11 @@ func parseStream(r io.Reader) (content string, calls []tools.ToolCall, err error
 		}
 		delta := chunk.Choices[0].Delta
 		content += delta.Content
+		if delta.Content != "" && onDelta != nil {
+			if err := onDelta(delta.Content); err != nil {
+				return "", nil, fmt.Errorf("stream delta: %w", err)
+			}
+		}
 		for _, toolCall := range delta.ToolCalls {
 			for len(partials) <= toolCall.Index {
 				partials = append(partials, partial{})
