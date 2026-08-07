@@ -164,7 +164,7 @@ func run() error {
 	player := audio.NewPlayback(cfg.Audio.Device, cfg.Audio.SampleRate, cfg.Audio.Channels)
 	status := console.NewStatusPrinter(os.Stderr)
 
-	voiceApplication, err := application.New(application.Dependencies{
+	voiceCoordinator, err := application.NewCoordinator(application.Dependencies{
 		Input:       recorder,
 		Transcriber: transcriber,
 		Responder:   session,
@@ -174,9 +174,9 @@ func run() error {
 		View:        newConsoleView(os.Stdout),
 	})
 	if err != nil {
-		return fmt.Errorf("voice application: %w", err)
+		return fmt.Errorf("voice coordinator: %w", err)
 	}
-	return voiceApplication.Run(ctx)
+	return voiceCoordinator.Run(ctx)
 }
 
 func llamaServerArgs(cfg config.LLMConfig) []string {

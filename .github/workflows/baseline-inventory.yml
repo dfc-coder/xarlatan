@@ -46,6 +46,8 @@ jobs:
           test -f internal/application/context_error_test.go
           test -f internal/application/stage_contract_test.go
           test -f internal/application/state_test.go
+          test -f internal/application/coordinator.go
+          test -f internal/application/coordinator_test.go
           test -f cmd/assistant/main_test.go
           test -f cmd/assistant/shutdown_test.go
           test -f scripts/tests/wi08_contract_test.sh
@@ -79,4 +81,5 @@ jobs:
           test -f docs/refactor/WI-08_EVIDENCE.md
           test -f docs/refactor/WI-09_SPEC.md
           test -f docs/refactor/WI-09_EVIDENCE.md
+          test -f docs/refactor/WI-10A_SPEC.md
           test -z "$(gofmt -l cmd internal)"
