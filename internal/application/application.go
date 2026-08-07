@@ -114,15 +114,17 @@ type Event struct {
 
 // Trace contains only bounded metadata about one turn.
 type Trace struct {
-	TurnID          uint64
-	States          []State
-	StageDurations  map[State]time.Duration
-	TotalDuration   time.Duration
-	SampleCount     int
-	TranscriptChars int
-	ReplyChars      int
-	Outcome         string
-	ErrorCode       ErrorCode
+	TurnID             uint64
+	States             []State
+	StageDurations     map[State]time.Duration
+	TotalDuration      time.Duration
+	FirstResponseDelta time.Duration
+	FirstAudio         time.Duration
+	SampleCount        int
+	TranscriptChars    int
+	ReplyChars         int
+	Outcome            string
+	ErrorCode          ErrorCode
 }
 
 // Result is the observable outcome of one voice turn.
@@ -349,13 +351,15 @@ func (nopView) ShowUser(string)      {}
 func (nopView) ShowAssistant(string) {}
 
 type turnRecorder struct {
-	turnID       uint64
-	observer     Observer
-	started      time.Time
-	stageStarted time.Time
-	current      State
-	states       []State
-	durations    map[State]time.Duration
+	turnID             uint64
+	observer           Observer
+	started            time.Time
+	stageStarted       time.Time
+	current            State
+	states             []State
+	durations          map[State]time.Duration
+	firstResponseDelta time.Duration
+	firstAudio         time.Duration
 }
 
 func newTurnRecorder(turnID uint64, observer Observer) *turnRecorder {
@@ -380,6 +384,25 @@ func (r *turnRecorder) emit(state State) {
 	r.observer.OnEvent(Event{TurnID: r.turnID, State: state})
 }
 
+func (r *turnRecorder) elapsed() time.Duration {
+	if r == nil {
+		return 0
+	}
+	return positiveDuration(time.Since(r.started))
+}
+
+func (r *turnRecorder) markFirstResponseDelta() {
+	if r != nil && r.firstResponseDelta == 0 {
+		r.firstResponseDelta = r.elapsed()
+	}
+}
+
+func (r *turnRecorder) markFirstAudio() {
+	if r != nil && r.firstAudio == 0 {
+		r.firstAudio = r.elapsed()
+	}
+}
+
 func (r *turnRecorder) finish(trace Trace) Trace {
 	now := time.Now()
 	if r.current != "" {
@@ -392,6 +415,12 @@ func (r *turnRecorder) finish(trace Trace) Trace {
 		trace.StageDurations[state] = duration
 	}
 	trace.TotalDuration = positiveDuration(now.Sub(r.started))
+	if trace.FirstResponseDelta == 0 {
+		trace.FirstResponseDelta = r.firstResponseDelta
+	}
+	if trace.FirstAudio == 0 {
+		trace.FirstAudio = r.firstAudio
+	}
 	return trace
 }
 
