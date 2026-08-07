@@ -419,6 +419,14 @@ func (c *Coordinator) abortStreamingPlayback(ctx context.Context, turnID uint64,
 	if state == nil || !state.speakingState || workers == nil {
 		return
 	}
+	if workers.ctx.Err() != nil {
+		if player, ok := c.dependencies.Player.(StreamingPlayer); ok {
+			_ = player.Stop()
+		}
+		state.wroteAudio = false
+		state.speakingState = false
+		return
+	}
 	stopCtx := nonNilContext(ctx)
 	if stopCtx.Err() != nil {
 		stopCtx = context.Background()
