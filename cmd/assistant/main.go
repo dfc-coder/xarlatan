@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/dfc-coder/xarlatan/internal/application"
@@ -21,12 +22,16 @@ import (
 	"github.com/dfc-coder/xarlatan/internal/tools"
 	"github.com/dfc-coder/xarlatan/internal/tts"
 	sherpavad "github.com/dfc-coder/xarlatan/internal/vad/sherpa"
+	"github.com/dfc-coder/xarlatan/internal/wake"
 )
 
 var (
 	cfgPath         = flag.String("config", "config.yaml", "path to config.yaml")
 	logLevel        = flag.String("log", "info", "log level: debug|info|warn|error")
 	noTools         = flag.Bool("no-tools", false, "disable all tools")
+	wakeEnabled     = flag.Bool("wake", true, "require wake word before each voice command")
+	wakeWord        = flag.String("wake-word", "xarlatan", "primary wake word or phrase")
+	wakeAliases     = flag.String("wake-aliases", "charlatan,charlatán", "comma-separated wake aliases")
 	maxToolRounds   = flag.Int("max-tool-rounds", 4, "maximum tool rounds per user turn")
 	maxHistoryBytes = flag.Int("max-history-bytes", 12_288, "maximum JSON bytes retained in conversation history")
 	maxSummaryBytes = flag.Int("max-summary-bytes", 2_048, "maximum bytes retained in the untrusted memory summary")
@@ -172,10 +177,10 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("vad: %w", err)
 	}
-	recorder, err := audio.NewRecorderWithDetector(cfg.Audio, voiceDetector)
+	recorder, err := audio.NewContinuousRecorderWithDetector(cfg.Audio, voiceDetector)
 	if err != nil {
 		_ = voiceDetector.Close()
-		return fmt.Errorf("audio recorder: %w", err)
+		return fmt.Errorf("continuous audio recorder: %w", err)
 	}
 	defer func() {
 		if err := recorder.Close(); err != nil {
@@ -193,6 +198,7 @@ func run() error {
 		}
 	}()
 	playback := audio.NewPlayback(cfg.Audio.Device, cfg.Audio.SampleRate, cfg.Audio.Channels)
+	playback.UseContinuousCaptureGuard()
 	player, err := audio.NewResponsePlayback(playback)
 	if err != nil {
 		return fmt.Errorf("response playback: %w", err)
@@ -203,6 +209,7 @@ func run() error {
 		}
 	}()
 	status := console.NewStatusPrinter(os.Stderr)
+	observer := newCaptureGateObserver(newConsoleObserver(status), recorder)
 
 	voiceCoordinator, err := application.NewCoordinator(application.Dependencies{
 		Input:       recorder,
@@ -210,13 +217,34 @@ func run() error {
 		Responder:   session,
 		Synthesizer: synthesizer,
 		Player:      player,
-		Observer:    newConsoleObserver(status),
+		Observer:    observer,
 		View:        newConsoleView(os.Stdout),
 	})
 	if err != nil {
 		return fmt.Errorf("voice coordinator: %w", err)
 	}
+	if *wakeEnabled {
+		wakeDetector, err := wake.NewPhraseDetector(*wakeWord, splitWakeAliases(*wakeAliases))
+		if err != nil {
+			return fmt.Errorf("wake detector: %w", err)
+		}
+		voiceCoordinator.SetWakeDetector(wakeDetector)
+	}
 	return voiceCoordinator.Run(ctx)
+}
+
+func splitWakeAliases(value string) []string {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	parts := strings.Split(value, ",")
+	aliases := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if alias := strings.TrimSpace(part); alias != "" {
+			aliases = append(aliases, alias)
+		}
+	}
+	return aliases
 }
 
 func llamaServerArgs(cfg config.LLMConfig) []string {

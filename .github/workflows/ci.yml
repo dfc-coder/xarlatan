@@ -68,6 +68,7 @@ jobs:
           go test -count=1 -coverprofile=audio-coverage.out ./internal/audio
           go test -count=1 -coverprofile=vad-coverage.out ./internal/vad
           go test -count=1 -coverprofile=sherpa-vad-coverage.out ./internal/vad/sherpa
+          go test -count=1 -coverprofile=wake-coverage.out ./internal/wake
 
           enforce() {
             local name="$1"
@@ -85,12 +86,13 @@ jobs:
           enforce audio audio-coverage.out 51.1
           enforce vad vad-coverage.out 90.1
           enforce sherpa-vad sherpa-vad-coverage.out 75
+          enforce wake wake-coverage.out 80
 
       - name: Repeat focused tests
-        run: go test -count=20 ./internal/orchestrator ./internal/tools ./internal/llm ./internal/memory ./internal/vad/... ./internal/audio ./internal/conversation ./internal/application
+        run: go test -count=20 ./internal/orchestrator ./internal/tools ./internal/llm ./internal/memory ./internal/vad/... ./internal/wake ./internal/audio ./internal/conversation ./internal/application
 
       - name: Race-test focused packages
-        run: go test -race -count=1 ./internal/orchestrator ./internal/tools ./internal/llm ./internal/memory ./internal/vad/... ./internal/audio ./internal/conversation ./internal/application
+        run: go test -race -count=1 ./internal/orchestrator ./internal/tools ./internal/llm ./internal/memory ./internal/vad/... ./internal/wake ./internal/audio ./internal/conversation ./internal/application
 
       - name: Build and verify version
         run: |
@@ -129,3 +131,4 @@ jobs:
             audio-coverage.out
             vad-coverage.out
             sherpa-vad-coverage.out
+            wake-coverage.out
