@@ -22,34 +22,14 @@ jobs:
           from pathlib import Path
           p = Path('internal/application/coordinator.go')
           text = p.read_text()
-          old = '''type Coordinator struct {
-          dependencies Dependencies
-          sequence     atomic.Uint64
-          interrupts   InterruptSource
-          }'''.replace('          ', '\t')
-          new = '''type Coordinator struct {
-          dependencies Dependencies
-          sequence     atomic.Uint64
-          interrupts   InterruptSource
-          wake         WakeDetector
-          }'''.replace('          ', '\t')
+          old = "type Coordinator struct {\n\tdependencies Dependencies\n\tsequence     atomic.Uint64\n\tinterrupts   InterruptSource\n}"
+          new = "type Coordinator struct {\n\tdependencies Dependencies\n\tsequence     atomic.Uint64\n\tinterrupts   InterruptSource\n\twake         WakeDetector\n}"
           if old not in text:
               raise SystemExit('Coordinator anchor not found')
           text = text.replace(old, new, 1)
 
-          old = '''\tresult.Trace.TranscriptChars = len(transcript)
-          \tc.dependencies.View.ShowUser(transcript)
-
-          \trecorder.emit(StateThinking)'''.replace('          ', '')
-          new = '''\tresult.Trace.TranscriptChars = len(transcript)
-          \tvar accepted bool
-          \ttranscript, accepted = c.applyWakeGate(transcript, recorder, &result)
-          \tif !accepted {
-          \t\treturn result, nil
-          \t}
-          \tc.dependencies.View.ShowUser(transcript)
-
-          \trecorder.emit(StateThinking)'''.replace('          ', '')
+          old = "\tresult.Trace.TranscriptChars = len(transcript)\n\tc.dependencies.View.ShowUser(transcript)\n\n\trecorder.emit(StateThinking)"
+          new = "\tresult.Trace.TranscriptChars = len(transcript)\n\tvar accepted bool\n\ttranscript, accepted = c.applyWakeGate(transcript, recorder, &result)\n\tif !accepted {\n\t\treturn result, nil\n\t}\n\tc.dependencies.View.ShowUser(transcript)\n\n\trecorder.emit(StateThinking)"
           if old not in text:
               raise SystemExit('transcript anchor not found')
           text = text.replace(old, new, 1)
