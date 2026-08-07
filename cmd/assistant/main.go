@@ -20,7 +20,7 @@ import (
 	"github.com/dfc-coder/xarlatan/internal/stt"
 	"github.com/dfc-coder/xarlatan/internal/tools"
 	"github.com/dfc-coder/xarlatan/internal/tts"
-	"github.com/dfc-coder/xarlatan/internal/vad"
+	sherpavad "github.com/dfc-coder/xarlatan/internal/vad/sherpa"
 )
 
 var (
@@ -157,7 +157,7 @@ func run() error {
 		return fmt.Errorf("conversation session: %w", err)
 	}
 
-	voiceDetector, err := vad.NewSilero(vad.SileroConfig{
+	voiceDetector, err := sherpavad.New(sherpavad.Config{
 		Model:              vadRuntime.Model,
 		Threshold:          vadRuntime.Threshold,
 		MinSilenceDuration: vadRuntime.MinSilenceDuration,
