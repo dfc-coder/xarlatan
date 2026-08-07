@@ -81,9 +81,9 @@ assert_not_contains "$ROOT/packaging/config.yaml" 'gemma-3-270m-it-Q4_K_M.gguf'
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
-mkdir -p "$TMP/bin" "$TMP/models/vad" "$TMP/models/stt" "$TMP/models/llm" "$TMP/models/tts/espeak-ng-data"
+mkdir -p "$TMP/bin" "$TMP/models/vad" "$TMP/models/stt/whisper" "$TMP/models/llm" "$TMP/models/tts/espeak-ng-data"
 printf x > "$TMP/models/vad/silero_vad.onnx"
-for file in encoder.onnx decoder.onnx tokens.txt; do printf x > "$TMP/models/stt/$file"; done
+for file in encoder.onnx decoder.onnx tokens.txt; do printf x > "$TMP/models/stt/whisper/$file"; done
 printf x > "$TMP/models/llm/model.gguf"
 printf x > "$TMP/models/tts/model.onnx"
 printf x > "$TMP/models/tts/tokens.txt"
@@ -92,9 +92,9 @@ cat > "$TMP/config.yaml" <<CONFIG
 audio:
   device: "default"
 stt:
-  encoder: "$TMP/models/stt/encoder.onnx"
-  decoder: "$TMP/models/stt/decoder.onnx"
-  tokens: "$TMP/models/stt/tokens.txt"
+  encoder: "$TMP/models/stt/whisper/encoder.onnx"
+  decoder: "$TMP/models/stt/whisper/decoder.onnx"
+  tokens: "$TMP/models/stt/whisper/tokens.txt"
 llm:
   model: "$TMP/models/llm/model.gguf"
   host: "127.0.0.1"
