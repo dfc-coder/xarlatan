@@ -1,7 +1,6 @@
 package audio
 
 import (
-	"context"
 	"testing"
 
 	"github.com/dfc-coder/xarlatan/internal/config"
@@ -82,12 +81,14 @@ func (f *fakeDetector) ProcessChunk([]float32) (bool, bool) {
 }
 
 func (f *fakeDetector) Reset() { f.speaking = false }
+
 func (f *fakeDetector) IsSpeaking() bool { return f.speaking }
+
 func (f *fakeDetector) SetEventHandler(handler func(vad.Event)) { f.handler = handler }
+
 func (f *fakeDetector) Close() error {
 	f.closeCalls++
 	return nil
 }
 
 var _ vad.Detector = (*fakeDetector)(nil)
-var _ = context.Background
