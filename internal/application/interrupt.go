@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"errors"
+	"time"
 )
 
 // StateInterrupted marks a user-driven interruption of the active turn.
@@ -15,11 +16,20 @@ const ErrorInterrupted ErrorCode = "interrupted"
 var errTurnInterrupted = errors.New("turn interrupted")
 
 // InterruptEvent is metadata-only. TurnID prevents a late speech event from an
-// older turn from cancelling the current one.
+// older turn from cancelling the current one. Latency is measured by the source
+// from acoustic candidate start until textual confirmation.
 type InterruptEvent struct {
-	TurnID uint64
-	Reason string
+	TurnID  uint64
+	Reason  string
+	Latency time.Duration
 }
+
+type turnInterruptedCause struct {
+	latency time.Duration
+}
+
+func (e *turnInterruptedCause) Error() string { return errTurnInterrupted.Error() }
+func (e *turnInterruptedCause) Unwrap() error { return errTurnInterrupted }
 
 // InterruptSource binds an external interruption detector to one active turn.
 // Implementations must stop publishing when ctx is done. Physical microphone
@@ -61,7 +71,7 @@ func (c *Coordinator) watchInterrupts(
 				if event.TurnID != turnID {
 					continue
 				}
-				cancel(errTurnInterrupted)
+				cancel(&turnInterruptedCause{latency: event.Latency})
 				return
 			}
 		}
@@ -70,6 +80,17 @@ func (c *Coordinator) watchInterrupts(
 
 func interruptedContext(ctx context.Context) bool {
 	return ctx != nil && errors.Is(context.Cause(ctx), errTurnInterrupted)
+}
+
+func interruptLatency(ctx context.Context) time.Duration {
+	if ctx == nil {
+		return 0
+	}
+	var cause *turnInterruptedCause
+	if errors.As(context.Cause(ctx), &cause) && cause != nil {
+		return cause.latency
+	}
+	return 0
 }
 
 func interruptedApplicationError() error {
