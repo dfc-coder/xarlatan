@@ -74,7 +74,7 @@ WI-11C sustituirá esta supresión completa durante playback por una política e
 
 ## Recuperación
 
-Si el proceso de captura termina inesperadamente, la fuente publica un error acotado y vuelve a estado no-running. El siguiente `Next` puede iniciar una nueva fuente. No se crean procesos por turno en operación normal.
+Si el proceso de captura termina inesperadamente, la fuente publica un error acotado y vuelve a estado no-running. El siguiente `Next` puede iniciar una nueva fuente. No se crean procesos por turno en operación normal. Un utterance ya completado tiene prioridad sobre el error terminal de la fuente para no perder la última frase válida si `arecord` termina inmediatamente después.
 
 ## Tests
 
