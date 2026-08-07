@@ -11,7 +11,8 @@ func TestContinuousRecorderPublishesOneBoundedPartialPerActiveUtterance(t *testi
 	detector := &fakeDetector{steps: []detectorStep{
 		{speaking: true}, {speaking: true}, {speaking: true}, {speaking: true},
 		{speaking: true}, {speaking: true}, {speaking: true}, {speaking: true},
-		{speaking: true}, {speaking: true}, {speaking: true, finish: true},
+		{speaking: true}, {speaking: true}, {speaking: true}, {speaking: true},
+		{speaking: true}, {speaking: true, finish: true},
 	}}
 	recorder, err := newContinuousRecorder(
 		config.AudioConfig{SampleRate: 1000, Channels: 1},
@@ -27,7 +28,7 @@ func TestContinuousRecorderPublishesOneBoundedPartialPerActiveUtterance(t *testi
 
 	var recording []float32
 	partialSent := false
-	for i := 0; i < 11; i++ {
+	for i := 0; i < 14; i++ {
 		chunk := constantChunk(80, 0.1)
 		var finish bool
 		recording, finish = recorder.processChunk(recording, chunk)
@@ -46,8 +47,8 @@ func TestContinuousRecorderPublishesOneBoundedPartialPerActiveUtterance(t *testi
 	if preview.Buffer.Empty() || preview.CapturedAt.IsZero() {
 		t.Fatalf("preview = %+v", preview)
 	}
-	if len(preview.Buffer.Samples) < 800 {
-		t.Fatalf("partial samples = %d, want about one second", len(preview.Buffer.Samples))
+	if len(preview.Buffer.Samples) < 1000 {
+		t.Fatalf("partial samples = %d, want at least one second", len(preview.Buffer.Samples))
 	}
 	if recorder.maybePublishPartial(recording, partialSent) != true {
 		t.Fatal("partialSent unexpectedly reset")

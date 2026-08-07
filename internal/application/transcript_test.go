@@ -7,148 +7,138 @@ import (
 	"time"
 
 	"github.com/dfc-coder/xarlatan/internal/audio"
-	"github.com/dfc-coder/xarlatan/internal/conversation"
 )
 
-func TestCoordinatorPublishesPartialBeforeFinalWithoutCallingResponder(t *testing.T) {
-	input := newPartialTestInput()
-	transcriber := &partialTestTranscriber{}
+func TestTranscriptBridgePublishesPartialBeforeAuthoritativeFinal(t *testing.T) {
+	source := newBridgePartialSource()
+	transcriber := &bridgeTestTranscriber{}
 	observer := newRecordingTranscriptObserver()
-	responder := &countingResponder{}
-	coordinator, err := NewCoordinator(Dependencies{
-		Input:       input,
-		Transcriber: transcriber,
-		Responder:   responder,
-		Synthesizer: synthesizerFunc(func(context.Context, string) (audio.Buffer, error) {
-			return audio.Buffer{}, nil
-		}),
-		Player: playerFunc(func(context.Context, audio.Buffer) error { return nil }),
-	})
+	bridge, err := NewTranscriptBridge(source, transcriber, observer)
 	if err != nil {
 		t.Fatal(err)
 	}
-	coordinator.SetTranscriptObserver(observer)
 
-	done := make(chan turnOutcome, 1)
-	go func() {
-		result, err := coordinator.RunTurn(context.Background())
-		done <- turnOutcome{result: result, err: err}
-	}()
-
-	input.partials <- audio.PartialAudio{
-		Buffer:     audio.Buffer{Samples: []float32{1, 1}, SampleRate: 16000, Channels: 1},
+	bridge.OnEvent(Event{TurnID: 1, State: StateListening})
+	source.partials <- audio.PartialAudio{
+		Buffer:     audio.Buffer{Samples: []float32{1}, SampleRate: 16000, Channels: 1},
 		CapturedAt: time.Now(),
 	}
 	partial := observer.waitFor(t, TranscriptPartial)
-	if partial.Text != "Xarlatan cómo" || partial.TurnID != 1 {
+	if partial.TurnID != 1 || partial.Text != "Xarlatan cómo" {
 		t.Fatalf("partial = %+v", partial)
 	}
-	if responder.count() != 0 {
-		t.Fatalf("responder calls after partial = %d, want 0", responder.count())
-	}
 
-	close(input.releaseFinal)
-	outcome := <-done
-	if outcome.err != nil {
-		t.Fatalf("RunTurn() error = %v", outcome.err)
-	}
-	final := observer.waitFor(t, TranscriptFinal)
-	if final.Text != "Xarlatan cómo estás" || final.TurnID != partial.TurnID {
-		t.Fatalf("final = %+v; partial = %+v", final, partial)
-	}
-	if responder.count() != 1 {
-		t.Fatalf("responder calls = %d, want 1", responder.count())
-	}
-	if outcome.result.Trace.FirstSTTPartial <= 0 {
-		t.Fatalf("FirstSTTPartial = %s, want >0", outcome.result.Trace.FirstSTTPartial)
-	}
-}
-
-func TestCoordinatorWithoutPreviewPublishesOnlyFinal(t *testing.T) {
-	input := &finalOnlyInput{}
-	observer := newRecordingTranscriptObserver()
-	coordinator, err := NewCoordinator(Dependencies{
-		Input: input,
-		Transcriber: transcriberFunc(func(context.Context, audio.Buffer) (string, error) {
-			return "final corto", nil
-		}),
-		Responder: responderFunc(func(context.Context, string) (conversation.Result, error) {
-			return conversation.Result{Reply: "ok"}, nil
-		}),
-		Synthesizer: synthesizerFunc(func(context.Context, string) (audio.Buffer, error) { return audio.Buffer{}, nil }),
-		Player:      playerFunc(func(context.Context, audio.Buffer) error { return nil }),
+	finalText, err := bridge.Transcribe(context.Background(), audio.Buffer{
+		Samples: []float32{2}, SampleRate: 16000, Channels: 1,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	coordinator.SetTranscriptObserver(observer)
-	result, err := coordinator.RunTurn(context.Background())
+	if finalText != "Xarlatan cómo estás" {
+		t.Fatalf("final text = %q", finalText)
+	}
+	final := observer.waitFor(t, TranscriptFinal)
+	if final.TurnID != 1 || final.Text != finalText {
+		t.Fatalf("final = %+v", final)
+	}
+	events := observer.snapshot()
+	if len(events) != 2 || events[0].Kind != TranscriptPartial || events[1].Kind != TranscriptFinal {
+		t.Fatalf("events = %+v, want partial then final", events)
+	}
+	if latency := bridge.ConsumeFirstSTTPartial(1); latency <= 0 {
+		t.Fatalf("partial latency = %s, want >0", latency)
+	}
+	if latency := bridge.ConsumeFirstSTTPartial(1); latency != 0 {
+		t.Fatalf("second partial latency = %s, want 0", latency)
+	}
+}
+
+func TestTranscriptBridgeFinalRemainsAuthoritativeWithoutPreview(t *testing.T) {
+	source := newBridgePartialSource()
+	observer := newRecordingTranscriptObserver()
+	bridge, err := NewTranscriptBridge(source, &bridgeTestTranscriber{}, observer)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Trace.FirstSTTPartial != 0 {
-		t.Fatalf("FirstSTTPartial = %s, want 0", result.Trace.FirstSTTPartial)
+	bridge.OnEvent(Event{TurnID: 3, State: StateListening})
+
+	finalText, err := bridge.Transcribe(context.Background(), audio.Buffer{
+		Samples: []float32{2}, SampleRate: 16000, Channels: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if finalText != "Xarlatan cómo estás" {
+		t.Fatalf("final text = %q", finalText)
 	}
 	events := observer.snapshot()
-	if len(events) != 1 || events[0].Kind != TranscriptFinal || events[0].Text != "final corto" {
+	if len(events) != 1 || events[0].Kind != TranscriptFinal || events[0].TurnID != 3 {
 		t.Fatalf("events = %+v, want one final", events)
 	}
-}
+	if latency := bridge.ConsumeFirstSTTPartial(3); latency != 0 {
+		t.Fatalf("partial latency = %s, want 0", latency)
+	}
 
-type partialTestInput struct {
-	partials     chan audio.PartialAudio
-	releaseFinal chan struct{}
-}
-
-func newPartialTestInput() *partialTestInput {
-	return &partialTestInput{
-		partials:     make(chan audio.PartialAudio, 1),
-		releaseFinal: make(chan struct{}),
+	// A preview arriving after finalization is stale and must never appear.
+	source.partials <- audio.PartialAudio{
+		Buffer:     audio.Buffer{Samples: []float32{1}, SampleRate: 16000, Channels: 1},
+		CapturedAt: time.Now(),
+	}
+	time.Sleep(20 * time.Millisecond)
+	if got := observer.snapshot(); len(got) != 1 {
+		t.Fatalf("late preview produced events = %+v", got)
 	}
 }
 
-func (i *partialTestInput) Next(ctx context.Context) (audio.Buffer, error) {
-	select {
-	case <-ctx.Done():
-		return audio.Buffer{}, ctx.Err()
-	case <-i.releaseFinal:
-		return audio.Buffer{Samples: []float32{2, 2}, SampleRate: 16000, Channels: 1}, nil
+func TestTranscriptBridgeStoppingCancelsPreview(t *testing.T) {
+	source := newBridgePartialSource()
+	observer := newRecordingTranscriptObserver()
+	bridge, err := NewTranscriptBridge(source, &bridgeTestTranscriber{}, observer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bridge.OnEvent(Event{TurnID: 7, State: StateListening})
+	bridge.OnEvent(Event{TurnID: 7, State: StateStopping})
+	source.partials <- audio.PartialAudio{
+		Buffer:     audio.Buffer{Samples: []float32{1}, SampleRate: 16000, Channels: 1},
+		CapturedAt: time.Now(),
+	}
+	time.Sleep(20 * time.Millisecond)
+	if events := observer.snapshot(); len(events) != 0 {
+		t.Fatalf("cancelled preview events = %+v", events)
 	}
 }
 
-func (i *partialTestInput) PartialAudio() <-chan audio.PartialAudio { return i.partials }
-
-type finalOnlyInput struct{}
-
-func (*finalOnlyInput) Next(context.Context) (audio.Buffer, error) {
-	return audio.Buffer{Samples: []float32{2}, SampleRate: 16000, Channels: 1}, nil
+func TestNewTranscriptBridgeValidatesDependencies(t *testing.T) {
+	if _, err := NewTranscriptBridge(nil, &bridgeTestTranscriber{}, nil); err == nil {
+		t.Fatal("NewTranscriptBridge(nil source) error = nil")
+	}
+	if _, err := NewTranscriptBridge(newBridgePartialSource(), nil, nil); err == nil {
+		t.Fatal("NewTranscriptBridge(nil transcriber) error = nil")
+	}
+	var bridge *TranscriptBridge
+	if _, err := bridge.Transcribe(context.Background(), audio.Buffer{}); err == nil {
+		t.Fatal("nil bridge Transcribe error = nil")
+	}
 }
 
-type partialTestTranscriber struct{}
+type bridgePartialSource struct {
+	partials chan audio.PartialAudio
+}
 
-func (*partialTestTranscriber) Transcribe(_ context.Context, buffer audio.Buffer) (string, error) {
+func newBridgePartialSource() *bridgePartialSource {
+	return &bridgePartialSource{partials: make(chan audio.PartialAudio, 4)}
+}
+
+func (s *bridgePartialSource) PartialAudio() <-chan audio.PartialAudio { return s.partials }
+
+type bridgeTestTranscriber struct{}
+
+func (*bridgeTestTranscriber) Transcribe(_ context.Context, buffer audio.Buffer) (string, error) {
 	if len(buffer.Samples) > 0 && buffer.Samples[0] == 1 {
-		return "Xarlatan cómo", nil
+		return " Xarlatan cómo ", nil
 	}
-	return "Xarlatan cómo estás", nil
-}
-
-type countingResponder struct {
-	mu    sync.Mutex
-	calls int
-}
-
-func (r *countingResponder) Respond(context.Context, string) (conversation.Result, error) {
-	r.mu.Lock()
-	r.calls++
-	r.mu.Unlock()
-	return conversation.Result{Reply: "bien"}, nil
-}
-
-func (r *countingResponder) count() int {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.calls
+	return " Xarlatan cómo estás ", nil
 }
 
 type recordingTranscriptObserver struct {
@@ -189,6 +179,6 @@ func (o *recordingTranscriptObserver) snapshot() []TranscriptEvent {
 	return append([]TranscriptEvent(nil), o.events...)
 }
 
-var _ PartialAudioSource = (*partialTestInput)(nil)
-var _ VoiceInput = (*finalOnlyInput)(nil)
+var _ PartialAudioSource = (*bridgePartialSource)(nil)
+var _ Transcriber = (*bridgeTestTranscriber)(nil)
 var _ TranscriptObserver = (*recordingTranscriptObserver)(nil)

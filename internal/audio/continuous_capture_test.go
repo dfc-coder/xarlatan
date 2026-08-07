@@ -157,13 +157,16 @@ func (f *fakeContinuousFactory) starts() int {
 	return f.count
 }
 
+// fakeCaptureProcess mirrors execCaptureProcess: Stop is safe when Close and
+// source shutdown race to release the same capture process.
 type fakeCaptureProcess struct {
 	io.Reader
-	stopped bool
+	stopOnce sync.Once
+	stopped  bool
 }
 
 func (p *fakeCaptureProcess) Stop() error {
-	p.stopped = true
+	p.stopOnce.Do(func() { p.stopped = true })
 	return nil
 }
 

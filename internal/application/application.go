@@ -118,6 +118,7 @@ type Trace struct {
 	States             []State
 	StageDurations     map[State]time.Duration
 	TotalDuration      time.Duration
+	FirstSTTPartial    time.Duration
 	FirstResponseDelta time.Duration
 	FirstAudio         time.Duration
 	InterruptLatency   time.Duration
@@ -419,6 +420,11 @@ func (r *turnRecorder) finish(trace Trace) Trace {
 		trace.StageDurations[state] = duration
 	}
 	trace.TotalDuration = positiveDuration(now.Sub(r.started))
+	if trace.FirstSTTPartial == 0 {
+		if provider, ok := r.observer.(STTPartialMetricProvider); ok {
+			trace.FirstSTTPartial = provider.ConsumeFirstSTTPartial(r.turnID)
+		}
+	}
 	if trace.FirstResponseDelta == 0 {
 		trace.FirstResponseDelta = r.firstResponseDelta
 	}
