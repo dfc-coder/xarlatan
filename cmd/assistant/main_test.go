@@ -60,9 +60,14 @@ func TestMainConstructsSingleRuntimeSessionAndCoordinator(t *testing.T) {
 		"conversation.New(memoryManager, agent)",
 		"cfg.SileroVADConfig()",
 		"sherpavad.New(",
-		"audio.NewRecorderWithDetector(",
+		"audio.NewContinuousRecorderWithDetector(",
 		"recorder.Close()",
 		"audio.NewPlayback(",
+		"playback.UseContinuousCaptureGuard()",
+		"audio.NewResponsePlayback(playback)",
+		"newCaptureGateObserver(",
+		"wake.NewPhraseDetector(",
+		"voiceCoordinator.SetWakeDetector(",
 		"player.Close()",
 		"application.NewCoordinator(application.Dependencies{",
 		"voiceCoordinator.Run(ctx)",
@@ -82,6 +87,15 @@ func TestMainConstructsSingleRuntimeSessionAndCoordinator(t *testing.T) {
 		if strings.Contains(source, forbidden) {
 			t.Fatalf("main.go contains runtime logic %q", forbidden)
 		}
+	}
+}
+
+func TestSplitWakeAliases(t *testing.T) {
+	if got := splitWakeAliases(" charlatan, charlatán ,, xarlatan "); !reflect.DeepEqual(got, []string{"charlatan", "charlatán", "xarlatan"}) {
+		t.Fatalf("splitWakeAliases() = %v", got)
+	}
+	if got := splitWakeAliases("   "); got != nil {
+		t.Fatalf("splitWakeAliases(blank) = %v, want nil", got)
 	}
 }
 
