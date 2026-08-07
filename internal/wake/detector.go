@@ -59,8 +59,14 @@ func (d *PhraseDetector) Detect(transcript string) (string, bool) {
 			if start > 2 && len(tokens)-end > 1 {
 				continue
 			}
-			command := strings.TrimSpace(transcript[:tokens[start].start] + " " + transcript[tokens[end-1].end:])
-			command = strings.Trim(command, " \t\r\n,.;:!?¿¡-—")
+			parts := make([]string, 0, len(tokens)-len(phrase))
+			for i, token := range tokens {
+				if i >= start && i < end {
+					continue
+				}
+				parts = append(parts, token.raw)
+			}
+			command := strings.Join(parts, " ")
 			if command == "" {
 				// Wake word alone remains a meaningful conversational input.
 				command = strings.TrimSpace(transcript)
@@ -72,9 +78,8 @@ func (d *PhraseDetector) Detect(transcript string) (string, bool) {
 }
 
 type token struct {
+	raw        string
 	normalized string
-	start      int
-	end        int
 }
 
 func tokenize(text string) []token {
@@ -88,12 +93,14 @@ func tokenize(text string) []token {
 			continue
 		}
 		if start >= 0 {
-			tokens = append(tokens, token{normalized: normalizeWord(text[start:offset]), start: start, end: offset})
+			raw := text[start:offset]
+			tokens = append(tokens, token{raw: raw, normalized: normalizeWord(raw)})
 			start = -1
 		}
 	}
 	if start >= 0 {
-		tokens = append(tokens, token{normalized: normalizeWord(text[start:]), start: start, end: len(text)})
+		raw := text[start:]
+		tokens = append(tokens, token{raw: raw, normalized: normalizeWord(raw)})
 	}
 	return tokens
 }
