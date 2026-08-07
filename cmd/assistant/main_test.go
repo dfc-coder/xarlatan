@@ -53,13 +53,13 @@ func TestBuildRegistryAllowsMutationsOnlyWhenExplicit(t *testing.T) {
 	}
 }
 
-func TestMainConstructsSingleRuntimeSessionAndApplication(t *testing.T) {
+func TestMainConstructsSingleRuntimeSessionAndCoordinator(t *testing.T) {
 	source := readMainSource(t)
 	for _, required := range []string{
 		"orchestrator.NewAgentRuntime(",
 		"conversation.New(memoryManager, agent)",
-		"application.New(application.Dependencies{",
-		"voiceApplication.Run(ctx)",
+		"application.NewCoordinator(application.Dependencies{",
+		"voiceCoordinator.Run(ctx)",
 	} {
 		if !strings.Contains(source, required) {
 			t.Fatalf("main.go missing composition primitive %q", required)
