@@ -4,6 +4,7 @@ package stt
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	sherpa "github.com/k2-fsa/sherpa-onnx-go/sherpa_onnx"
 
@@ -11,8 +12,11 @@ import (
 	"github.com/dfc-coder/xarlatan/internal/config"
 )
 
-// Transcriber wraps a sherpa-onnx Whisper recognizer.
+// Transcriber wraps a sherpa-onnx Whisper recognizer. The recognizer is
+// serialized because WI-11C may validate a barge-in candidate while the same
+// runtime is otherwise available to the normal STT worker.
 type Transcriber struct {
+	mu         sync.Mutex
 	recognizer *sherpa.OfflineRecognizer
 	sampleRate int
 }
@@ -47,7 +51,12 @@ func New(cfg config.STTConfig, sampleRate int) (*Transcriber, error) {
 
 // Close releases model resources.
 func (t *Transcriber) Close() error {
-	if t != nil && t.recognizer != nil {
+	if t == nil {
+		return nil
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.recognizer != nil {
 		sherpa.DeleteOfflineRecognizer(t.recognizer)
 		t.recognizer = nil
 	}
@@ -58,7 +67,7 @@ func (t *Transcriber) Close() error {
 // decode cannot be preempted after it starts, so cancellation is checked before
 // and immediately after the decode boundary.
 func (t *Transcriber) Transcribe(ctx context.Context, buffer audio.Buffer) (string, error) {
-	if t == nil || t.recognizer == nil {
+	if t == nil {
 		return "", fmt.Errorf("transcriber is not initialized")
 	}
 	if ctx == nil {
@@ -75,6 +84,15 @@ func (t *Transcriber) Transcribe(ctx context.Context, buffer audio.Buffer) (stri
 	}
 	if buffer.SampleRate != t.sampleRate {
 		return "", fmt.Errorf("unexpected sample rate %d, want %d", buffer.SampleRate, t.sampleRate)
+	}
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.recognizer == nil {
+		return "", fmt.Errorf("transcriber is not initialized")
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
 	}
 
 	stream := sherpa.NewOfflineStream(t.recognizer)
