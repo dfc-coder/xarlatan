@@ -12,6 +12,10 @@ trap 'rm -rf "$STAGE"' EXIT
 for artifact in assistant calibrate llama-server; do
   [[ -x "$ROOT/bin/$artifact" ]] || { printf 'missing bin/%s; run make all VERSION=%s\n' "$artifact" "$VERSION" >&2; exit 1; }
 done
+[[ -s "$ROOT/lib/libsherpa-onnx-c-api.so" ]] || {
+  printf 'missing staged native runtime; run make build VERSION=%s\n' "$VERSION" >&2
+  exit 1
+}
 
 mkdir -p \
   "$STAGE/$NAME/bin" \
@@ -21,7 +25,9 @@ mkdir -p \
 install -m755 "$ROOT/bin/assistant" "$STAGE/$NAME/bin/assistant"
 install -m755 "$ROOT/bin/calibrate" "$STAGE/$NAME/bin/calibrate"
 install -m755 "$ROOT/bin/llama-server" "$STAGE/$NAME/bin/llama-server"
-bash "$ROOT/scripts/collect_runtime_libs.sh" "$ROOT/bin/assistant" "$STAGE/$NAME/lib"
+while IFS= read -r -d '' library; do
+  install -m755 "$library" "$STAGE/$NAME/lib/$(basename "$library")"
+done < <(find "$ROOT/lib" -maxdepth 1 -type f -print0)
 install -m644 "$ROOT/packaging/config.yaml" "$STAGE/$NAME/packaging/config.yaml"
 install -m644 "$ROOT/packaging/systemd/xarlatan.service" "$STAGE/$NAME/packaging/systemd/xarlatan.service"
 for script in install.sh uninstall.sh rollback.sh download_models.sh preflight.sh beta_acceptance.sh collect_runtime_libs.sh; do
