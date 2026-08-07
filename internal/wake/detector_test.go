@@ -12,7 +12,7 @@ func TestPhraseDetectorAcceptsPrimaryAndAliases(t *testing.T) {
 		want  string
 	}{
 		{"Xarlatan, ¿qué hora es?", "qué hora es"},
-		{"Hola Charlatán, busca vuelos", "Hola   busca vuelos"},
+		{"Hola Charlatán, busca vuelos", "Hola busca vuelos"},
 		{"qué puedes hacer, charlatan", "qué puedes hacer"},
 	}
 	for _, tc := range cases {
