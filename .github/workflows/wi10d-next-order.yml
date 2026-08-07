@@ -1,0 +1,69 @@
+name: wi10d one-shot next ordering
+
+on:
+  push:
+    branches:
+      - "agent/wi-10d-continuous-wake"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/wi-10d-continuous-wake
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.21.x"
+      - name: Prioritize queued utterances before source restart
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('internal/audio/continuous_capture.go')
+          text = p.read_text()
+          old = '''\tif err := ctx.Err(); err != nil {
+\t\treturn Buffer{}, err
+\t}
+\tif err := r.ensureRunning(); err != nil {
+\t\treturn Buffer{}, err
+\t}
+
+\t// Prefer already-buffered speech over a terminal source error that happened
+\t// after that utterance was completed.
+\tselect {
+\tcase buffer := <-r.utterances:
+\t\treturn buffer.Clone(), nil
+\tdefault:
+\t}
+'''
+          new = '''\tif err := ctx.Err(); err != nil {
+\t\treturn Buffer{}, err
+\t}
+
+\t// Prefer already-buffered speech before deciding whether the source needs
+\t// restart. This preserves a completed utterance if arecord ended immediately
+\t// after publishing it and avoids a redundant capture process.
+\tselect {
+\tcase buffer := <-r.utterances:
+\t\treturn buffer.Clone(), nil
+\tdefault:
+\t}
+\tif err := r.ensureRunning(); err != nil {
+\t\treturn Buffer{}, err
+\t}
+'''
+          if old not in text:
+              raise SystemExit('Next ordering anchor not found')
+          p.write_text(text.replace(old, new, 1))
+          PY
+          gofmt -w internal/audio/continuous_capture.go
+          rm .github/workflows/wi10d-next-order.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add internal/audio/continuous_capture.go .github/workflows/wi10d-next-order.yml
+          git commit -m "fix(WI-10D): consume queued speech before capture restart"
+          git push origin HEAD:agent/wi-10d-continuous-wake
