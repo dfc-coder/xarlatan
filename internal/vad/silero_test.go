@@ -159,13 +159,13 @@ type sileroStep struct {
 }
 
 type fakeSileroBackend struct {
-	steps      []sileroStep
-	current    sileroStep
-	index      int
+	steps       []sileroStep
+	current     sileroStep
+	index       int
 	acceptCount int
-	popCount   int
-	clearCount int
-	closeCount int
+	popCount    int
+	clearCount  int
+	closeCount  int
 }
 
 func (f *fakeSileroBackend) AcceptWaveform([]float32) {
