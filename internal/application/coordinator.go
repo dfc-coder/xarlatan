@@ -276,7 +276,7 @@ func (c *Coordinator) completeStreamingResponse(
 			state.deltaSeen = true
 			if !state.firstDelta {
 				state.firstDelta = true
-				result.Trace.FirstResponseDelta = recorder.elapsed()
+				recorder.markFirstResponseDelta()
 			}
 			if err := c.playStreamingPhrases(ctx, turnID, workers, recorder, state, state.sentenceBuilder.Push(delta.text)); err != nil {
 				c.abortStreamingPlayback(ctx, turnID, workers, state)
@@ -309,7 +309,7 @@ responseComplete:
 			state.deltaSeen = true
 			if !state.firstDelta {
 				state.firstDelta = true
-				result.Trace.FirstResponseDelta = recorder.elapsed()
+				recorder.markFirstResponseDelta()
 			}
 			if err := c.playStreamingPhrases(ctx, turnID, workers, recorder, state, state.sentenceBuilder.Push(delta.text)); err != nil {
 				c.abortStreamingPlayback(ctx, turnID, workers, state)
@@ -391,6 +391,7 @@ func (c *Coordinator) playStreamingPhrases(
 		state.wroteAudio = true
 		if !state.firstAudio {
 			state.firstAudio = true
+			recorder.markFirstAudio()
 		}
 	}
 	return nil
