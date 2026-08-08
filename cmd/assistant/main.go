@@ -15,8 +15,6 @@ import (
 	"github.com/dfc-coder/xarlatan/internal/barge"
 	"github.com/dfc-coder/xarlatan/internal/config"
 	"github.com/dfc-coder/xarlatan/internal/console"
-	"github.com/dfc-coder/xarlatan/internal/stt"
-	"github.com/dfc-coder/xarlatan/internal/tts"
 	sherpavad "github.com/dfc-coder/xarlatan/internal/vad/sherpa"
 	"github.com/dfc-coder/xarlatan/internal/wake"
 )
@@ -66,13 +64,13 @@ func run() error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	transcriber, err := stt.New(cfg.STT, cfg.Audio.SampleRate)
+	voiceInference, err := newVoiceInferenceRuntime(ctx, cfg)
 	if err != nil {
-		return fmt.Errorf("stt: %w", err)
+		return fmt.Errorf("voice inference runtime: %w", err)
 	}
 	defer func() {
-		if err := transcriber.Close(); err != nil {
-			slog.Warn("stt close", "err", err)
+		if err := voiceInference.Close(); err != nil {
+			slog.Warn("voice inference close", "err", err)
 		}
 	}()
 
@@ -114,22 +112,13 @@ func run() error {
 
 	transcriptBridge, err := application.NewTranscriptBridge(
 		recorder,
-		transcriber,
+		voiceInference.transcriber,
 		newConsoleTranscriptObserver(os.Stdout),
 	)
 	if err != nil {
 		return fmt.Errorf("transcript bridge: %w", err)
 	}
 
-	synthesizer, err := tts.New(cfg.TTS, cfg.Audio.Device)
-	if err != nil {
-		return fmt.Errorf("tts: %w", err)
-	}
-	defer func() {
-		if err := synthesizer.Close(); err != nil {
-			slog.Warn("tts close", "err", err)
-		}
-	}()
 	playback := audio.NewPlayback(cfg.Audio.Device, cfg.Audio.SampleRate, cfg.Audio.Channels)
 	playback.UseContinuousCaptureGuard()
 	player, err := audio.NewResponsePlayback(playback)
@@ -151,7 +140,7 @@ func run() error {
 		Input:       recorder,
 		Transcriber: transcriptBridge,
 		Responder:   responseRuntime.responder,
-		Synthesizer: synthesizer,
+		Synthesizer: voiceInference.synthesizer,
 		Player:      player,
 		Observer:    observer,
 		View:        newConsoleView(os.Stdout),
@@ -170,7 +159,7 @@ func run() error {
 	if *bargeEnabled {
 		bargeController, err := application.NewBargeInController(
 			recorder,
-			transcriber,
+			voiceInference.transcriber,
 			barge.NewExplicitStopPolicy(wakeDetector),
 		)
 		if err != nil {
