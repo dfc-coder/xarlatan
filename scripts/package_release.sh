@@ -9,8 +9,8 @@ NAME="xarlatan-${VERSION}-linux-amd64"
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 
-for artifact in assistant calibrate llama-server; do
-  [[ -x "$ROOT/bin/$artifact" ]] || { printf 'missing bin/%s; run make all VERSION=%s\n' "$artifact" "$VERSION" >&2; exit 1; }
+for artifact in assistant calibrate; do
+  [[ -x "$ROOT/bin/$artifact" ]] || { printf 'missing bin/%s; run make build VERSION=%s\n' "$artifact" "$VERSION" >&2; exit 1; }
 done
 [[ -s "$ROOT/lib/libsherpa-onnx-c-api.so" ]] || {
   printf 'missing staged native runtime; run make build VERSION=%s\n' "$VERSION" >&2
@@ -24,17 +24,25 @@ mkdir -p \
   "$STAGE/$NAME/scripts"
 install -m755 "$ROOT/bin/assistant" "$STAGE/$NAME/bin/assistant"
 install -m755 "$ROOT/bin/calibrate" "$STAGE/$NAME/bin/calibrate"
-install -m755 "$ROOT/bin/llama-server" "$STAGE/$NAME/bin/llama-server"
+if [[ -x "$ROOT/bin/llama-server" ]]; then
+  install -m755 "$ROOT/bin/llama-server" "$STAGE/$NAME/bin/llama-server"
+fi
 while IFS= read -r -d '' library; do
   install -m755 "$library" "$STAGE/$NAME/lib/$(basename "$library")"
 done < <(find "$ROOT/lib" -maxdepth 1 -type f -print0)
 install -m644 "$ROOT/packaging/config.yaml" "$STAGE/$NAME/packaging/config.yaml"
 install -m644 "$ROOT/packaging/systemd/xarlatan.service" "$STAGE/$NAME/packaging/systemd/xarlatan.service"
-for script in install.sh uninstall.sh rollback.sh download_models.sh preflight.sh beta_acceptance.sh collect_runtime_libs.sh; do
+for script in \
+  install.sh uninstall.sh rollback.sh download_models.sh preflight.sh \
+  beta_acceptance.sh beta_v05_acceptance.sh beta_v06_acceptance.sh \
+  collect_runtime_libs.sh setup_voice_runtime.sh openvino_voice_worker.py; do
   install -m755 "$ROOT/scripts/$script" "$STAGE/$NAME/scripts/$script"
 done
 install -m644 "$ROOT/README.md" "$STAGE/$NAME/README.md"
 install -m644 "$ROOT/docs/BETA_RUNBOOK.md" "$STAGE/$NAME/BETA_RUNBOOK.md"
+if [[ -f "$ROOT/docs/BETA_V06_RUNBOOK.md" ]]; then
+  install -m644 "$ROOT/docs/BETA_V06_RUNBOOK.md" "$STAGE/$NAME/BETA_V06_RUNBOOK.md"
+fi
 install -m644 "$ROOT/CHANGELOG.md" "$STAGE/$NAME/CHANGELOG.md"
 install -m644 "$ROOT/LICENSE" "$STAGE/$NAME/LICENSE"
 
