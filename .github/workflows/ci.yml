@@ -8,6 +8,7 @@ on:
       - "refactor/**"
       - "agent/**"
       - "hotfix/**"
+      - "delivery/**"
 
 permissions:
   contents: read
@@ -40,17 +41,7 @@ jobs:
         run: go mod download
 
       - name: Verify formatting
-        shell: bash
-        run: |
-          set -euo pipefail
-          unformatted="$(gofmt -l .)"
-          if [[ -n "$unformatted" ]]; then
-            printf 'Unformatted files:\n%s\n' "$unformatted"
-            while IFS= read -r file; do
-              gofmt -d "$file"
-            done <<< "$unformatted"
-            exit 1
-          fi
+        run: make format-check
 
       - name: Vet
         run: go vet ./...
@@ -109,7 +100,7 @@ jobs:
             scripts/install.sh scripts/uninstall.sh scripts/rollback.sh \
             scripts/download_models.sh scripts/preflight.sh \
             scripts/beta_acceptance.sh scripts/beta_v05_acceptance.sh scripts/package_release.sh \
-            scripts/collect_runtime_libs.sh \
+            scripts/collect_runtime_libs.sh scripts/gofmt_guard.sh \
             scripts/tests/wi08_contract_test.sh scripts/tests/wi09_contract_test.sh \
             scripts/tests/wi11d_contract_test.sh
           bash scripts/tests/wi08_contract_test.sh
