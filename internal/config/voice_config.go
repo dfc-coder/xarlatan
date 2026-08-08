@@ -25,6 +25,7 @@ type VoiceVADConfig struct {
 }
 
 type VoiceInferenceConfig struct {
+	Python         string `yaml:"python"`
 	ModelDir       string `yaml:"model_dir"`
 	VoiceFile      string `yaml:"voice_file"`
 	Language       string `yaml:"language"`
@@ -55,25 +56,29 @@ func (c *Config) applyVoiceDefaults() {
 }
 
 func validateVoiceGateway(cfg VoiceConfig) error {
-	if err := validateExecutable("voice.worker.python", cfg.Worker.Python); err != nil {
-		return err
-	}
 	if err := validateRegularFile("voice.worker.script", cfg.Worker.Script); err != nil {
 		return err
 	}
 	if err := validateRegularFile("voice.vad.model", cfg.VAD.Model); err != nil {
 		return err
 	}
-	if err := validateVoiceInference("voice.stt", cfg.STT, false); err != nil {
+	if err := validateVoiceInference("voice.stt", cfg.Worker.Python, cfg.STT, false); err != nil {
 		return err
 	}
-	if err := validateVoiceInference("voice.tts", cfg.TTS, true); err != nil {
+	if err := validateVoiceInference("voice.tts", cfg.Worker.Python, cfg.TTS, true); err != nil {
 		return err
 	}
 	return nil
 }
 
-func validateVoiceInference(name string, cfg VoiceInferenceConfig, requireVoice bool) error {
+func validateVoiceInference(name, defaultPython string, cfg VoiceInferenceConfig, requireVoice bool) error {
+	python := strings.TrimSpace(cfg.Python)
+	if python == "" {
+		python = strings.TrimSpace(defaultPython)
+	}
+	if err := validateExecutable(name+".python", python); err != nil {
+		return err
+	}
 	if err := validateDirectory(name+".model_dir", cfg.ModelDir); err != nil {
 		return err
 	}
