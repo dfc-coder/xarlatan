@@ -78,7 +78,7 @@ runtime-libs: $(BIN_DIR)/assistant FORCE ## Stage sherpa native library used by 
 
 FORCE:
 
-models: ## Download legacy models plus the shared Silero VAD model
+models: ## Download and validate default runtime models
 	@bash scripts/download_models.sh
 
 install: build ## Install the v0.6 gateway; llama-server is optional rollback state
