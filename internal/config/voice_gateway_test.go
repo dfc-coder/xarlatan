@@ -1,7 +1,6 @@
 package config
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -21,17 +20,7 @@ func TestLoadDefaultsAgentModeToLegacyNative(t *testing.T) {
 
 func TestValidateVoiceGatewayDoesNotRequireLocalAgentStack(t *testing.T) {
 	cfg := operationalConfig(t)
-	binary := filepath.Join(t.TempDir(), "zeroclaw")
-	if err := os.WriteFile(binary, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
-		t.Fatalf("write zeroclaw: %v", err)
-	}
-	cfg.Agent = AgentConfig{
-		Mode: "voice_gateway",
-		ZeroClaw: ZeroClawConfig{
-			Binary:     binary,
-			AgentAlias: "xarlatan",
-		},
-	}
+	configureVoiceGatewayFixture(t, &cfg)
 	cfg.LLM = LLMConfig{}
 	cfg.Tools.WebSearch.Provider = "not-a-local-provider"
 	cfg.Tools.Filesystem = FilesystemConfig{Enabled: true, AllowMutations: true}
