@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
+bash scripts/gofmt_guard.sh staged
+bash scripts/gofmt_guard.sh check

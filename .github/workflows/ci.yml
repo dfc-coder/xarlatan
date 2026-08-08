@@ -8,6 +8,7 @@ on:
       - "refactor/**"
       - "agent/**"
       - "hotfix/**"
+      - "delivery/**"
 
 permissions:
   contents: read
@@ -34,23 +35,13 @@ jobs:
       - name: Install native and operational dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends alsa-utils libasound2-dev shellcheck
+          sudo apt-get install -y --no-install-recommends alsa-utils libasound2-dev shellcheck python3
 
       - name: Download modules
         run: go mod download
 
       - name: Verify formatting
-        shell: bash
-        run: |
-          set -euo pipefail
-          unformatted="$(gofmt -l .)"
-          if [[ -n "$unformatted" ]]; then
-            printf 'Unformatted files:\n%s\n' "$unformatted"
-            while IFS= read -r file; do
-              gofmt -d "$file"
-            done <<< "$unformatted"
-            exit 1
-          fi
+        run: make format-check
 
       - name: Vet
         run: go vet ./...
@@ -70,6 +61,8 @@ jobs:
           go test -count=1 -coverprofile=sherpa-vad-coverage.out ./internal/vad/sherpa
           go test -count=1 -coverprofile=wake-coverage.out ./internal/wake
           go test -count=1 -coverprofile=barge-coverage.out ./internal/barge
+          go test -count=1 -coverprofile=inference-coverage.out ./internal/inference
+          go test -count=1 -coverprofile=zeroclaw-coverage.out ./internal/zeroclaw
 
           enforce() {
             local name="$1"
@@ -89,38 +82,47 @@ jobs:
           enforce sherpa-vad sherpa-vad-coverage.out 75
           enforce wake wake-coverage.out 80
           enforce barge barge-coverage.out 80
+          enforce inference inference-coverage.out 70
+          enforce zeroclaw zeroclaw-coverage.out 70
 
       - name: Repeat focused tests
-        run: go test -count=20 ./internal/orchestrator ./internal/tools ./internal/llm ./internal/memory ./internal/vad/... ./internal/wake ./internal/barge ./internal/audio ./internal/conversation ./internal/application
+        run: go test -count=20 ./internal/orchestrator ./internal/tools ./internal/llm ./internal/memory ./internal/vad/... ./internal/wake ./internal/barge ./internal/audio ./internal/conversation ./internal/application ./internal/inference ./internal/zeroclaw
 
       - name: Race-test focused packages
-        run: go test -race -count=1 ./internal/orchestrator ./internal/tools ./internal/llm ./internal/memory ./internal/vad/... ./internal/wake ./internal/barge ./internal/audio ./internal/conversation ./internal/application
+        run: go test -race -count=1 ./internal/orchestrator ./internal/tools ./internal/llm ./internal/memory ./internal/vad/... ./internal/wake ./internal/barge ./internal/audio ./internal/conversation ./internal/application ./internal/inference ./internal/zeroclaw
+
+      - name: Verify voice worker and operational scripts
+        run: |
+          python3 -m py_compile scripts/openvino_voice_worker.py
+          bash -n scripts/setup_voice_runtime.sh
+          bash -n scripts/beta_v06_acceptance.sh
 
       - name: Build and verify version
         run: |
           make clean build
-          test "$(./bin/assistant -version)" = "assistant v0.5.0-beta.1"
+          test "$(./bin/assistant -version)" = "assistant v0.6.0-beta.1"
           test -x ./bin/calibrate
+          test ! -e ./bin/llama-server
 
       - name: Verify shell and release contracts
         run: |
-          # Contract tests intentionally search for unexpanded Make and shell syntax.
           shellcheck --exclude=SC2016 \
             scripts/install.sh scripts/uninstall.sh scripts/rollback.sh \
             scripts/download_models.sh scripts/preflight.sh \
-            scripts/beta_acceptance.sh scripts/beta_v05_acceptance.sh scripts/package_release.sh \
-            scripts/collect_runtime_libs.sh \
+            scripts/beta_acceptance.sh scripts/beta_v05_acceptance.sh scripts/beta_v06_acceptance.sh \
+            scripts/package_release.sh scripts/setup_voice_runtime.sh \
+            scripts/collect_runtime_libs.sh scripts/gofmt_guard.sh \
             scripts/tests/wi08_contract_test.sh scripts/tests/wi09_contract_test.sh \
-            scripts/tests/wi11d_contract_test.sh
+            scripts/tests/wi11d_contract_test.sh scripts/tests/v06_contract_test.sh
           bash scripts/tests/wi08_contract_test.sh
           bash scripts/tests/wi09_contract_test.sh
           bash scripts/tests/wi11d_contract_test.sh
+          bash scripts/tests/v06_contract_test.sh
 
       - name: Verify systemd user unit and hardening
         run: |
           sudo install -Dm755 /bin/true /usr/local/bin/xarlatan
           systemd-analyze verify packaging/systemd/xarlatan.service
-          # systemd-analyze uses a 0..100 percentage threshold; 50 corresponds to 5.0/10.
           systemd-analyze security --offline=yes --threshold=50 packaging/systemd/xarlatan.service
 
       - name: Upload coverage
@@ -137,3 +139,5 @@ jobs:
             sherpa-vad-coverage.out
             wake-coverage.out
             barge-coverage.out
+            inference-coverage.out
+            zeroclaw-coverage.out

@@ -30,6 +30,37 @@ No escribir código funcional antes de:
 - `/review`: trazabilidad, evidencia, riesgos residuales y rollback.
 - `/ship`: instalación, smoke y rollback validados.
 
+## Regla de formato Go — hard gate
+
+`gofmt` no es un gate de descubrimiento tardío. Es una precondición para crear
+un commit válido.
+
+- Todo archivo `.go` creado o modificado debe pasar por `gofmt -w` antes del
+  commit.
+- Antes de avanzar de DEVELOPMENT a TEST debe pasar `make format-check`.
+- El hook versionado `.githooks/pre-commit` formatea automáticamente todos los
+  `.go` staged y vuelve a agregarlos al commit.
+- Un RED de TDD **no cuenta como RED válido** si CI falla primero por formato,
+  sintaxis de fixture, typo o infraestructura. El primer fallo debe ser el
+  contrato funcional esperado.
+- Un agente que escriba Go mediante API/connector debe producir contenido ya
+  compatible con `gofmt`; no debe usar CI como formatter.
+- Nunca se baja, elimina o salta el gate de formato para hacer avanzar una
+  entrega.
+
+Preparación de un checkout nuevo:
+
+```bash
+make dev-setup
+```
+
+Formateo manual y verificación:
+
+```bash
+make fmt
+make format-check
+```
+
 ## Reglas de código
 
 - Go 1.21 hasta que un spec apruebe el upgrade.
@@ -60,7 +91,7 @@ Estas reglas describen el estado objetivo. El baseline importado todavía contie
 Hay 19 archivos de pruebas en el baseline.
 
 ```bash
-gofmt -l .
+make format-check
 go vet ./...
 go test -count=1 ./...
 go test -coverprofile=coverage.out ./...
@@ -80,15 +111,27 @@ go test -race -count=1 ./internal/<package>
 go test -count=50 ./internal/<package>
 ```
 
-Targets disponibles en `Makefile`: `build`, `deps`, `all`, `models`, `llama`, `clean` y `clean-all`. Los targets `dev-*` no son operativos hasta incorporar o eliminar la dependencia de `compose.yml` en WI-08.
+## Git delivery
+
+Para una entrega/beta normal:
+
+```text
+REQUIREMENT -> DEVELOPMENT -> TEST -> SHIP -> DELETE BRANCH
+```
+
+- Una única rama efímera por entrega y un único PR.
+- No crear ramas por cada sub-WI de la misma entrega.
+- Los commits internos pueden representar SPEC, RED, GREEN, REFACTOR y TEST.
+- Una rama adicional sólo se justifica para un hotfix independiente posterior.
+- Después del merge, eliminar la rama de entrega.
 
 ## PRs
 
-- Una rama y un slice por PR.
 - Usar `.github/pull_request_template.md`.
 - Incluir evidencia RED y GREEN.
-- Actualizar `docs/refactor/TRACEABILITY.md`.
+- Actualizar `docs/refactor/TRACEABILITY.md` cuando corresponda.
 - Declarar desviaciones, riesgos y rollback.
+- No marcar ready mientras `make format-check` no sea verde.
 
 ## Prohibiciones
 
@@ -99,3 +142,4 @@ Targets disponibles en `Makefile`: `build`, `deps`, `all`, `models`, `llama`, `c
 - Mantener dos orquestadores activos después de WI-04.
 - Introducir dependencias sin justificar necesidad, licencia y superficie de seguridad.
 - Marcar un requisito completo sin evidencia.
+- Considerar válido un RED cuya primera falla sea `gofmt`, sintaxis o fixture.

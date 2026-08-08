@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.6.0-beta.1
+
+- Xarlatan becomes the local voice gateway while ZeroClaw owns agent, memory, tools, skills and sessions.
+- ZeroClaw ACP v1 transport with persistent session, streamed `agent_message_chunk` output, safe permission rejection and `session/cancel` on interruption.
+- Legacy local `llama-server`/AgentRuntime remains rollback-only and is not constructed in `voice_gateway` mode.
+- Persistent OpenVINO Whisper STT worker with Intel GPU preferred and explicit CPU fallback.
+- Kokoro Spanish TTS (`ef_dora`) through `kokoro-onnx`, preferring ONNX Runtime OpenVINO EP and retaining CPU fallback with the same voice.
+- STT and Kokoro runtimes use isolated Python environments so their OpenVINO dependency trains cannot overwrite each other.
+- Binary voice-worker protocol keeps PCM as raw float32 data-plane payloads and JSON only for bounded control metadata.
+- Persistent inference-worker lifecycle with cancellation, child reaping and bounded restart after crash/cancel.
+- Silero VAD, wake/endpointing, persistent capture, sentence buffering, playback, physical barge-in and self-trigger protections remain in Xarlatan.
+- Monotonic v0.6 trace fields cover EOS, final transcript, first ZeroClaw delta, first PCM/playback boundary and derived latency intervals without transcript/audio content.
+- Dedicated setup and physical acceptance scripts validate OpenVINO/Kokoro/ZeroClaw, persistent `arecord`, streaming, interruption recovery and owned-process cleanup.
+- Default build/version advances to `v0.6.0-beta.1`; `make build` no longer compiles `llama-server`, while `make all` remains available for legacy rollback comparison.
+
 ## v0.5.0-beta.1
 
 - Event-driven Coordinator with persistent workers and TurnID cancellation.

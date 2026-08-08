@@ -12,10 +12,11 @@ func TestMainComposesTranscriptBridgeWithoutWrappingBargeSTT(t *testing.T) {
 	source := readMainSource(t)
 	for _, required := range []string{
 		"application.NewTranscriptBridge(",
+		"voiceInference.transcriber",
 		"newConsoleTranscriptObserver(os.Stdout)",
 		"newFanoutObserver(",
 		"Transcriber: transcriptBridge",
-		"application.NewBargeInController(\n\t\t\trecorder,\n\t\t\ttranscriber,",
+		"application.NewBargeInController(\n\t\t\trecorder,\n\t\t\tvoiceInference.transcriber,",
 	} {
 		if !strings.Contains(source, required) {
 			t.Fatalf("main.go missing WI-11C2 composition %q", required)

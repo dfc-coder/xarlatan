@@ -6,6 +6,35 @@ audio:
   max_duration_s: 30
   device: "default"
 
+agent:
+  mode: "voice_gateway"
+  zeroclaw:
+    binary: "/usr/local/bin/zeroclaw"
+    agent_alias: "xarlatan"
+    cwd: "/var/lib/xarlatan/workspace"
+
+voice:
+  worker:
+    script: "/usr/local/lib/xarlatan/openvino_voice_worker.py"
+  vad:
+    model: "/var/lib/xarlatan/models/vad/silero_vad.onnx"
+  stt:
+    python: "/opt/xarlatan/voice/stt-venv/bin/python"
+    model_dir: "/var/lib/xarlatan/models/openvino/whisper-base"
+    language: "es"
+    device: "GPU"
+    fallback_device: "CPU"
+    cache_dir: "/var/lib/xarlatan/cache/openvino/stt"
+  tts:
+    python: "/opt/xarlatan/voice/tts-venv/bin/python"
+    model_dir: "/var/lib/xarlatan/models/openvino/kokoro"
+    voice_file: "/var/lib/xarlatan/models/openvino/kokoro/voices-v1.0.bin"
+    language: "es"
+    device: "GPU"
+    fallback_device: "CPU"
+    cache_dir: "/var/lib/xarlatan/cache/openvino/tts"
+
+# Rollback-only native settings. Ignored while agent.mode=voice_gateway.
 stt:
   encoder: "/var/lib/xarlatan/models/stt/sherpa-onnx-whisper-base/base-encoder.onnx"
   decoder: "/var/lib/xarlatan/models/stt/sherpa-onnx-whisper-base/base-decoder.onnx"

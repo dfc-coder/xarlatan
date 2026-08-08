@@ -97,6 +97,7 @@ func TestValidateRejectsInvalidLLMPort(t *testing.T) {
 			ShutdownTimeoutMS: 1000,
 			HealthIntervalMS:  100,
 		},
+		Log: LogConfig{Level: "info"},
 	}
 	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "llm.port") {
 		t.Fatalf("Validate() error = %v, want llm.port error", err)

@@ -53,11 +53,10 @@ func TestBuildRegistryAllowsMutationsOnlyWhenExplicit(t *testing.T) {
 	}
 }
 
-func TestMainConstructsSingleRuntimeSessionAndCoordinator(t *testing.T) {
+func TestMainConstructsVoicePipelineAroundResponseRuntime(t *testing.T) {
 	source := readMainSource(t)
 	for _, required := range []string{
-		"orchestrator.NewAgentRuntime(",
-		"conversation.New(memoryManager, agent)",
+		"newResponseRuntime(ctx, cfg)",
 		"cfg.SileroVADConfig()",
 		"sherpavad.New(",
 		"audio.NewContinuousRecorderWithDetector(",
@@ -74,6 +73,7 @@ func TestMainConstructsSingleRuntimeSessionAndCoordinator(t *testing.T) {
 		"barge-in",
 		"player.Close()",
 		"application.NewCoordinator(application.Dependencies{",
+		"Responder:   responseRuntime.responder",
 		"voiceCoordinator.Run(ctx)",
 	} {
 		if !strings.Contains(source, required) {
@@ -81,6 +81,12 @@ func TestMainConstructsSingleRuntimeSessionAndCoordinator(t *testing.T) {
 		}
 	}
 	for _, forbidden := range []string{
+		"llm.NewServerManager(",
+		"llm.NewClient(",
+		"memory.New(",
+		"orchestrator.NewAgentRuntime(",
+		"conversation.New(",
+		"buildRegistry(",
 		"llmClient.Generate(",
 		"agent.Run(",
 		"executor.RunAll(",
@@ -89,7 +95,7 @@ func TestMainConstructsSingleRuntimeSessionAndCoordinator(t *testing.T) {
 		"memoryManager.Update(",
 	} {
 		if strings.Contains(source, forbidden) {
-			t.Fatalf("main.go contains runtime logic %q", forbidden)
+			t.Fatalf("main.go contains agent-plane logic %q", forbidden)
 		}
 	}
 }
@@ -103,10 +109,9 @@ func TestSplitWakeAliases(t *testing.T) {
 	}
 }
 
-func TestApplicationOwnsLLMServerLifecycle(t *testing.T) {
-	source := readMainSource(t)
+func TestLegacyRuntimeOwnsLLMServerLifecycle(t *testing.T) {
+	source := readCompositionSource(t, "legacy_agent_runtime.go")
 	for _, required := range []string{
-		"func run() error",
 		"llm.NewServerManager(",
 		"serverManager.Start(ctx)",
 		"serverManager.WaitReady(ctx)",
@@ -114,44 +119,23 @@ func TestApplicationOwnsLLMServerLifecycle(t *testing.T) {
 		"llm.NewClient(",
 	} {
 		if !strings.Contains(source, required) {
-			t.Fatalf("main.go missing lifecycle primitive %q", required)
+			t.Fatalf("legacy runtime missing lifecycle primitive %q", required)
 		}
-	}
-	for _, forbidden := range []string{
-		"llm.New(",
-		"llmClient.Close(",
-		"llmClient.startServer(",
-	} {
-		if strings.Contains(source, forbidden) {
-			t.Fatalf("main.go contains implicit lifecycle primitive %q", forbidden)
-		}
-	}
-	if got := strings.Count(source, "os.Exit("); got != 1 {
-		t.Fatalf("os.Exit calls = %d, want 1 only after run returns", got)
 	}
 }
 
-func TestMainConstructsBoundedMemoryWithoutOwningMemoryFlow(t *testing.T) {
-	source := readMainSource(t)
+func TestLegacyRuntimeConstructsBoundedMemory(t *testing.T) {
+	source := readCompositionSource(t, "legacy_agent_runtime.go")
 	for _, required := range []string{
 		"memory.New(",
 		"memory.ExtractiveSummarizer{}",
-		"max-history-bytes",
-		"max-summary-bytes",
+		"maxHistoryBytes",
+		"maxSummaryBytes",
+		"orchestrator.NewAgentRuntime(",
+		"conversation.New(memoryManager, agent)",
 	} {
 		if !strings.Contains(source, required) {
-			t.Fatalf("main.go missing bounded memory primitive %q", required)
-		}
-	}
-	for _, forbidden := range []string{
-		"memory.Compact(",
-		"memory.Compose(",
-		"memory.MergeSummary(",
-		"memoryManager.Prepare(",
-		"memoryManager.Update(",
-	} {
-		if strings.Contains(source, forbidden) {
-			t.Fatalf("main.go contains memory-flow primitive %q", forbidden)
+			t.Fatalf("legacy runtime missing bounded memory primitive %q", required)
 		}
 	}
 }
@@ -169,6 +153,16 @@ func TestMainIsCompositionRootOnly(t *testing.T) {
 		if strings.Contains(source, forbidden) {
 			t.Fatalf("main.go contains voice-stage logic %q", forbidden)
 		}
+	}
+}
+
+func TestMainExitsOnlyAfterRunReturns(t *testing.T) {
+	source := readMainSource(t)
+	if !strings.Contains(source, "func run() error") {
+		t.Fatal("main.go missing run() error boundary")
+	}
+	if got := strings.Count(source, "os.Exit("); got != 1 {
+		t.Fatalf("os.Exit calls = %d, want 1 only after run returns", got)
 	}
 }
 

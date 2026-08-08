@@ -8,23 +8,23 @@ import (
 func TestMainClosesOwnedResourcesInReverseAcquisitionOrder(t *testing.T) {
 	source := readMainSource(t)
 
-	transcriberAcquire := strings.Index(source, "transcriber, err := stt.New(")
-	transcriberDefer := strings.Index(source, "defer func() {\n\t\tif err := transcriber.Close()")
-	serverAcquire := strings.Index(source, "serverManager, err := llm.NewServerManager(")
-	serverDefer := strings.Index(source, "defer func() {\n\t\tif err := serverManager.Stop(context.Background())")
-	synthesizerAcquire := strings.Index(source, "synthesizer, err := tts.New(")
-	synthesizerDefer := strings.Index(source, "defer func() {\n\t\tif err := synthesizer.Close()")
+	voiceAcquire := strings.Index(source, "voiceInference, err := newVoiceInferenceRuntime(")
+	voiceDefer := strings.Index(source, "defer func() {\n\t\tif err := voiceInference.Close()")
+	responseAcquire := strings.Index(source, "responseRuntime, err := newResponseRuntime(")
+	responseDefer := strings.Index(source, "defer func() {\n\t\tif err := responseRuntime.Close()")
+	playbackAcquire := strings.Index(source, "playback := audio.NewPlayback(")
+	playbackDefer := strings.Index(source, "defer func() {\n\t\tif err := player.Close()")
 
 	positions := []struct {
 		name  string
 		value int
 	}{
-		{"transcriber acquire", transcriberAcquire},
-		{"transcriber defer", transcriberDefer},
-		{"server acquire", serverAcquire},
-		{"server defer", serverDefer},
-		{"synthesizer acquire", synthesizerAcquire},
-		{"synthesizer defer", synthesizerDefer},
+		{"voice inference acquire", voiceAcquire},
+		{"voice inference defer", voiceDefer},
+		{"response runtime acquire", responseAcquire},
+		{"response runtime defer", responseDefer},
+		{"playback acquire", playbackAcquire},
+		{"playback defer", playbackDefer},
 	}
 	for _, position := range positions {
 		if position.value < 0 {
@@ -32,8 +32,8 @@ func TestMainClosesOwnedResourcesInReverseAcquisitionOrder(t *testing.T) {
 		}
 	}
 
-	if !(transcriberAcquire < transcriberDefer && transcriberDefer < serverAcquire && serverAcquire < serverDefer && serverDefer < synthesizerAcquire && synthesizerAcquire < synthesizerDefer) {
-		t.Fatalf("resource acquisition/defer order is not transcriber -> server -> synthesizer: %+v", positions)
+	if !(voiceAcquire < voiceDefer && voiceDefer < responseAcquire && responseAcquire < responseDefer && responseDefer < playbackAcquire && playbackAcquire < playbackDefer) {
+		t.Fatalf("resource acquisition/defer order is not voice inference -> response runtime -> playback: %+v", positions)
 	}
-	// Go executes defers in LIFO order, yielding synthesizer -> server -> transcriber.
+	// Go executes defers in LIFO order: playback -> response runtime -> voice inference.
 }

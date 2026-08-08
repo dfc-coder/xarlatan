@@ -75,6 +75,12 @@ type VoiceInput interface {
 	Next(context.Context) (audio.Buffer, error)
 }
 
+// EndOfSpeechMetricProvider exposes the monotonic wall-clock boundary attached
+// to the most recently consumed utterance. It carries no audio or transcript.
+type EndOfSpeechMetricProvider interface {
+	ConsumeEndOfSpeech() time.Time
+}
+
 // Transcriber converts one audio buffer to text.
 type Transcriber interface {
 	Transcribe(context.Context, audio.Buffer) (string, error)
@@ -112,21 +118,31 @@ type Event struct {
 	State  State
 }
 
-// Trace contains only bounded metadata about one turn.
+// Trace contains only bounded metadata about one turn. v0.6 latency boundaries
+// are monotonic durations since the local turn recorder started; derived values
+// are differences between those boundaries and never contain conversation data.
 type Trace struct {
-	TurnID             uint64
-	States             []State
-	StageDurations     map[State]time.Duration
-	TotalDuration      time.Duration
-	FirstSTTPartial    time.Duration
-	FirstResponseDelta time.Duration
-	FirstAudio         time.Duration
-	InterruptLatency   time.Duration
-	SampleCount        int
-	TranscriptChars    int
-	ReplyChars         int
-	Outcome            string
-	ErrorCode          ErrorCode
+	TurnID               uint64
+	States               []State
+	StageDurations       map[State]time.Duration
+	TotalDuration        time.Duration
+	FirstSTTPartial      time.Duration
+	EndOfSpeech          time.Duration
+	FinalTranscript      time.Duration
+	FirstResponseDelta   time.Duration
+	FirstPCM             time.Duration
+	FirstAudio           time.Duration
+	STTLatency           time.Duration
+	AgentTTFT            time.Duration
+	TTSFirstChunkLatency time.Duration
+	PlaybackLatency      time.Duration
+	EOSToFirstAudio      time.Duration
+	InterruptLatency     time.Duration
+	SampleCount          int
+	TranscriptChars      int
+	ReplyChars           int
+	Outcome              string
+	ErrorCode            ErrorCode
 }
 
 // Result is the observable outcome of one voice turn.
@@ -255,6 +271,7 @@ func (a *Application) RunTurn(ctx context.Context) (result Result, err error) {
 	if validateErr := input.Validate(); validateErr != nil {
 		return a.fail(ctx, recorder, result, ErrorCaptureFailed, validateErr)
 	}
+	recorder.captureEndOfSpeech(a.input)
 	result.Trace.SampleCount = len(input.Samples)
 
 	recorder.emit(StateTranscribing)
@@ -262,6 +279,7 @@ func (a *Application) RunTurn(ctx context.Context) (result Result, err error) {
 	if stageErr != nil {
 		return a.fail(ctx, recorder, result, ErrorTranscriptionFailed, stageErr)
 	}
+	recorder.markFinalTranscript()
 	transcript = strings.TrimSpace(transcript)
 	if transcript == "" {
 		result.Noop = true
@@ -294,6 +312,7 @@ func (a *Application) RunTurn(ctx context.Context) (result Result, err error) {
 	if validateErr := output.Validate(); validateErr != nil {
 		return a.fail(ctx, recorder, result, ErrorSynthesisFailed, validateErr)
 	}
+	recorder.markFirstPCM()
 
 	recorder.emit(StateSpeaking)
 	if stageErr := a.player.Play(ctx, output.Clone()); stageErr != nil {
@@ -360,7 +379,10 @@ type turnRecorder struct {
 	current            State
 	states             []State
 	durations          map[State]time.Duration
+	endOfSpeech        time.Duration
+	finalTranscript    time.Duration
 	firstResponseDelta time.Duration
+	firstPCM           time.Duration
 	firstAudio         time.Duration
 }
 
@@ -396,9 +418,45 @@ func (r *turnRecorder) elapsed() time.Duration {
 	return positiveDuration(time.Since(r.started))
 }
 
+func (r *turnRecorder) captureEndOfSpeech(input VoiceInput) {
+	if r == nil || r.endOfSpeech != 0 {
+		return
+	}
+	if provider, ok := input.(EndOfSpeechMetricProvider); ok {
+		r.markEndOfSpeech(provider.ConsumeEndOfSpeech())
+	}
+}
+
+func (r *turnRecorder) markEndOfSpeech(at time.Time) {
+	if r == nil || r.endOfSpeech != 0 {
+		return
+	}
+	if at.IsZero() {
+		r.endOfSpeech = r.elapsed()
+		return
+	}
+	duration := at.Sub(r.started)
+	if duration <= 0 {
+		duration = r.elapsed()
+	}
+	r.endOfSpeech = positiveDuration(duration)
+}
+
+func (r *turnRecorder) markFinalTranscript() {
+	if r != nil && r.finalTranscript == 0 {
+		r.finalTranscript = r.elapsed()
+	}
+}
+
 func (r *turnRecorder) markFirstResponseDelta() {
 	if r != nil && r.firstResponseDelta == 0 {
 		r.firstResponseDelta = r.elapsed()
+	}
+}
+
+func (r *turnRecorder) markFirstPCM() {
+	if r != nil && r.firstPCM == 0 {
+		r.firstPCM = r.elapsed()
 	}
 }
 
@@ -425,13 +483,43 @@ func (r *turnRecorder) finish(trace Trace) Trace {
 			trace.FirstSTTPartial = provider.ConsumeFirstSTTPartial(r.turnID)
 		}
 	}
+	if trace.EndOfSpeech == 0 {
+		trace.EndOfSpeech = r.endOfSpeech
+	}
+	if trace.EndOfSpeech == 0 {
+		trace.EndOfSpeech = positiveDuration(r.durations[StateListening])
+	}
+	if trace.FinalTranscript == 0 {
+		trace.FinalTranscript = r.finalTranscript
+	}
+	if trace.FinalTranscript == 0 && trace.EndOfSpeech > 0 && r.durations[StateTranscribing] > 0 {
+		trace.FinalTranscript = trace.EndOfSpeech + positiveDuration(r.durations[StateTranscribing])
+	}
 	if trace.FirstResponseDelta == 0 {
 		trace.FirstResponseDelta = r.firstResponseDelta
+	}
+	if trace.FirstPCM == 0 {
+		trace.FirstPCM = r.firstPCM
 	}
 	if trace.FirstAudio == 0 {
 		trace.FirstAudio = r.firstAudio
 	}
+	if trace.FirstPCM == 0 && trace.FirstAudio > 0 {
+		trace.FirstPCM = trace.FirstAudio
+	}
+	trace.STTLatency = metricDelta(trace.EndOfSpeech, trace.FinalTranscript)
+	trace.AgentTTFT = metricDelta(trace.FinalTranscript, trace.FirstResponseDelta)
+	trace.TTSFirstChunkLatency = metricDelta(trace.FirstResponseDelta, trace.FirstPCM)
+	trace.PlaybackLatency = metricDelta(trace.FirstPCM, trace.FirstAudio)
+	trace.EOSToFirstAudio = metricDelta(trace.EndOfSpeech, trace.FirstAudio)
 	return trace
+}
+
+func metricDelta(start, end time.Duration) time.Duration {
+	if start <= 0 || end <= 0 || end < start {
+		return 0
+	}
+	return positiveDuration(end - start)
 }
 
 func positiveDuration(duration time.Duration) time.Duration {
