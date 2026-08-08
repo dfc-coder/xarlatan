@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/dfc-coder/xarlatan/internal/config"
@@ -13,7 +14,7 @@ import (
 
 func newVoiceGatewayInference(ctx context.Context, cfg *config.Config) (*voiceInferenceRuntime, error) {
 	sttWorker, err := inference.StartWorker(ctx, inference.WorkerConfig{
-		Python:          cfg.Voice.Worker.Python,
+		Python:          voicePython(cfg.Voice.Worker.Python, cfg.Voice.STT.Python),
 		Script:          cfg.Voice.Worker.Script,
 		Mode:            "stt",
 		ModelDir:        cfg.Voice.STT.ModelDir,
@@ -34,7 +35,7 @@ func newVoiceGatewayInference(ctx context.Context, cfg *config.Config) (*voiceIn
 	slog.Info("voice STT ready", "requested_device", sttHealth.RequestedDevice, "device", sttHealth.ResolvedDevice, "fallback", sttHealth.FallbackReason)
 
 	ttsWorker, err := inference.StartWorker(ctx, inference.WorkerConfig{
-		Python:          cfg.Voice.Worker.Python,
+		Python:          voicePython(cfg.Voice.Worker.Python, cfg.Voice.TTS.Python),
 		Script:          cfg.Voice.Worker.Script,
 		Mode:            "tts",
 		ModelDir:        cfg.Voice.TTS.ModelDir,
@@ -64,4 +65,11 @@ func newVoiceGatewayInference(ctx context.Context, cfg *config.Config) (*voiceIn
 			return errors.Join(ttsWorker.Close(), sttWorker.Close())
 		},
 	}, nil
+}
+
+func voicePython(fallback, specific string) string {
+	if value := strings.TrimSpace(specific); value != "" {
+		return value
+	}
+	return strings.TrimSpace(fallback)
 }
