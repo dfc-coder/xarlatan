@@ -15,6 +15,7 @@ on:
   push:
     branches:
       - "agent/wi-00-baseline"
+      - "delivery/**"
 
 permissions:
   contents: read
@@ -34,6 +35,8 @@ jobs:
           set -euo pipefail
           test -f internal/config/config_test.go
           test -f internal/config/vad_test.go
+          test -f internal/config/voice_gateway_test.go
+          test -f internal/config/voice_inference_test.go
           test -f internal/tools/policy_test.go
           test -f internal/tools/web_security_test.go
           test -f internal/orchestrator/runtime_test.go
@@ -82,6 +85,17 @@ jobs:
           test -f internal/application/wake_test.go
           test -f internal/application/transcript.go
           test -f internal/application/transcript_test.go
+          test -f internal/inference/protocol.go
+          test -f internal/inference/protocol_test.go
+          test -f internal/inference/worker.go
+          test -f internal/inference/worker_test.go
+          test -f internal/inference/worker_script_test.go
+          test -f internal/zeroclaw/acp.go
+          test -f internal/zeroclaw/acp_test.go
+          test -f internal/zeroclaw/responder.go
+          test -f internal/zeroclaw/responder_test.go
+          test -f internal/zeroclaw/runtime.go
+          test -f internal/zeroclaw/runtime_test.go
           test -f cmd/assistant/main_test.go
           test -f cmd/assistant/wi11a_test.go
           test -f cmd/assistant/capture_gate_observer.go
@@ -90,15 +104,23 @@ jobs:
           test -f cmd/assistant/transcript_metric.go
           test -f cmd/assistant/wi11c2_test.go
           test -f cmd/assistant/shutdown_test.go
+          test -f cmd/assistant/response_runtime.go
+          test -f cmd/assistant/voice_gateway_runtime.go
+          test -f cmd/assistant/voice_inference_runtime.go
+          test -f cmd/assistant/voice_gateway_inference.go
           test -f scripts/tests/wi08_contract_test.sh
           test -f scripts/tests/wi09_contract_test.sh
           test -f scripts/tests/wi11d_contract_test.sh
+          test -f scripts/tests/v06_contract_test.sh
           test -f scripts/install.sh
           test -f scripts/uninstall.sh
           test -f scripts/rollback.sh
           test -f scripts/preflight.sh
           test -f scripts/beta_acceptance.sh
           test -f scripts/beta_v05_acceptance.sh
+          test -f scripts/beta_v06_acceptance.sh
+          test -f scripts/setup_voice_runtime.sh
+          test -f scripts/openvino_voice_worker.py
           test -f scripts/package_release.sh
           test -f scripts/collect_runtime_libs.sh
           test -f packaging/config.yaml
@@ -116,6 +138,7 @@ jobs:
           test -f CHANGELOG.md
           test -f docs/BETA_RUNBOOK.md
           test -f docs/BETA_V05_RUNBOOK.md
+          test -f docs/BETA_V06_RUNBOOK.md
           test -f docs/baseline/REPOSITORY_LAYOUT.md
           test -f docs/baseline/VALIDATION.md
           test -f docs/baseline/KNOWN_ISSUES.md
@@ -141,4 +164,5 @@ jobs:
           test -f docs/refactor/WI-11C2_SPEC.md
           test -f docs/refactor/WI-11D_SPEC.md
           test -f docs/refactor/WI-11D_RELEASE_NOTES.md
+          test -f docs/refactor/V06_VOICE_GATEWAY_SPEC.md
           test -z "$(gofmt -l cmd internal)"
