@@ -29,7 +29,7 @@ func TestWorkerPersistsAcrossRequests(t *testing.T) {
 	}
 	defer worker.Close()
 
-	for range 2 {
+	for i := 0; i < 2; i++ {
 		text, err := worker.Transcribe(context.Background(), audio.Buffer{Samples: []float32{0.1}, SampleRate: 16000, Channels: 1})
 		if err != nil {
 			t.Fatalf("Transcribe() error = %v", err)
