@@ -97,7 +97,11 @@ preflight: build ## Validate local beta prerequisites
 	@EXPECTED_VERSION="v$(BUILD_VERSION)" XARLATAN_BIN="$(BIN_DIR)/assistant" bash scripts/preflight.sh config.yaml
 
 beta-acceptance: build ## Run the version-selected physical beta acceptance
-	@EXPECTED_VERSION="v$(BUILD_VERSION)" XARLATAN_BIN="$(BIN_DIR)/assistant" bash scripts/beta_acceptance.sh config.yaml
+	@if [[ "v$(BUILD_VERSION)" == "v0.6.0-beta.1" ]]; then \
+		EXPECTED_VERSION="v$(BUILD_VERSION)" bash scripts/beta_v06_acceptance.sh /etc/xarlatan/config.yaml; \
+	else \
+		EXPECTED_VERSION="v$(BUILD_VERSION)" XARLATAN_BIN="$(BIN_DIR)/assistant" bash scripts/beta_acceptance.sh config.yaml; \
+	fi
 
 clean-llama:
 	@rm -rf $(LLAMA_DIR)/build $(BIN_DIR)/llama-server
