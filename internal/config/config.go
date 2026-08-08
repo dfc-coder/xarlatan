@@ -29,6 +29,7 @@ type Config struct {
 	TTS   TTSConfig   `yaml:"tts"`
 	Tools ToolsConfig `yaml:"tools"`
 	Agent AgentConfig `yaml:"agent"`
+	Voice VoiceConfig `yaml:"voice"`
 	Log   LogConfig   `yaml:"log"`
 }
 
@@ -187,6 +188,7 @@ func (c *Config) applyDefaults(document *yaml.Node) {
 	if c.Agent.ZeroClaw.AgentAlias == "" {
 		c.Agent.ZeroClaw.AgentAlias = "xarlatan"
 	}
+	c.applyVoiceDefaults()
 	if c.Tools.WebSearch.Provider == "" {
 		c.Tools.WebSearch.Provider = "duckduckgo"
 	}
@@ -323,18 +325,22 @@ func (c *Config) Validate() error {
 	if err != nil {
 		return err
 	}
-	if mode == "legacy_native" {
-		if err := validateLLM(c.LLM); err != nil {
-			return err
-		}
-		if err := validateFilesystem(c.Tools.Filesystem); err != nil {
-			return err
-		}
-		if err := validateWebSearch(c.Tools.WebSearch); err != nil {
-			return err
-		}
+	if err := validateLogLevel(c.Log.Level); err != nil {
+		return err
+	}
+	if mode == "voice_gateway" {
+		return validateVoiceGateway(c.Voice)
 	}
 
+	if err := validateLLM(c.LLM); err != nil {
+		return err
+	}
+	if err := validateFilesystem(c.Tools.Filesystem); err != nil {
+		return err
+	}
+	if err := validateWebSearch(c.Tools.WebSearch); err != nil {
+		return err
+	}
 	if c.TTS.LengthScale <= 0 {
 		return fmt.Errorf("tts.length_scale must be greater than zero")
 	}
@@ -344,10 +350,6 @@ func (c *Config) Validate() error {
 	if c.TTS.NoiseW < 0 {
 		return fmt.Errorf("tts.noise_w must not be negative")
 	}
-	if err := validateLogLevel(c.Log.Level); err != nil {
-		return err
-	}
-
 	for _, item := range []struct {
 		name string
 		path string
@@ -362,10 +364,7 @@ func (c *Config) Validate() error {
 			return err
 		}
 	}
-	if err := validateDirectory("tts.data_dir", c.TTS.DataDir); err != nil {
-		return err
-	}
-	return nil
+	return validateDirectory("tts.data_dir", c.TTS.DataDir)
 }
 
 func validateAgent(cfg AgentConfig) (string, error) {
