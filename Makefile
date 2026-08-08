@@ -11,7 +11,7 @@ LLAMA_REF := b8660
 NPROC := $(shell nproc)
 CMAKE_COMMON := -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF
 GOFLAGS ?= -mod=mod
-VERSION ?= v0.5.0-beta.1
+VERSION ?= v0.6.0-beta.1
 BUILD_VERSION := $(patsubst v%,%,$(VERSION))
 
 ifdef GGML_CUDA
@@ -20,11 +20,11 @@ endif
 
 .PHONY: all build runtime-libs deps llama models install uninstall rollback release-candidate preflight beta-acceptance fmt format-check dev-setup clean clean-all clean-llama reset-llama help FORCE
 
-all: deps build ## Build llama-server, Go commands and native runtime libraries
+all: deps build ## Build legacy llama-server plus the v0.6 voice gateway
 
-deps: llama ## Build third-party runtime dependencies
+deps: llama ## Build legacy third-party agent dependency
 
-llama: $(BIN_DIR)/llama-server ## Build llama-server
+llama: $(BIN_DIR)/llama-server ## Build legacy llama-server rollback dependency
 
 $(BIN_DIR)/llama-server:
 	@echo "── Syncing llama.cpp $(LLAMA_REF)…"
@@ -54,7 +54,7 @@ dev-setup: ## Install repository-local Git hooks for this checkout
 	@chmod +x .githooks/pre-commit
 	@echo "✓ Git hooks enabled from .githooks"
 
-build: $(BIN_DIR)/assistant $(BIN_DIR)/calibrate runtime-libs ## Build Go commands and stage native runtime libraries
+build: $(BIN_DIR)/assistant $(BIN_DIR)/calibrate runtime-libs ## Build v0.6 Go commands and native VAD runtime
 
 $(BIN_DIR)/assistant: FORCE
 	@mkdir -p $(BIN_DIR)
@@ -68,7 +68,7 @@ $(BIN_DIR)/calibrate: FORCE
 	@go build $(GOFLAGS) -ldflags="-s -w" -o $(BIN_DIR)/calibrate ./cmd/calibrate
 	@echo "✓ calibrate built → bin/calibrate"
 
-runtime-libs: $(BIN_DIR)/assistant FORCE ## Stage non-system CGo libraries before sudo installation
+runtime-libs: $(BIN_DIR)/assistant FORCE ## Stage sherpa native library used by Silero VAD
 	@module_dir="$$(go list $(GOFLAGS) -m -f '{{.Dir}}' github.com/k2-fsa/sherpa-onnx-go-linux)"; \
 	rm -rf $(RUNTIME_LIB_DIR); \
 	mkdir -p $(RUNTIME_LIB_DIR); \
@@ -78,10 +78,10 @@ runtime-libs: $(BIN_DIR)/assistant FORCE ## Stage non-system CGo libraries befor
 
 FORCE:
 
-models: ## Download and validate default runtime models
+models: ## Download legacy models plus the shared Silero VAD model
 	@bash scripts/download_models.sh
 
-install: all ## Install binaries, config and user service; does not enable service
+install: build ## Install the v0.6 gateway; llama-server is optional rollback state
 	@bash scripts/install.sh
 
 uninstall: ## Remove binaries, libraries and service, preserving config/models
@@ -90,14 +90,14 @@ uninstall: ## Remove binaries, libraries and service, preserving config/models
 rollback: ## Restore the state before the last install
 	@bash scripts/rollback.sh
 
-release-candidate: all ## Build deterministic beta archive and SHA-256
+release-candidate: build ## Build deterministic v0.6 beta archive and SHA-256
 	@bash scripts/package_release.sh "$(VERSION)"
 
-preflight: build ## Validate local beta prerequisites and models
-	@EXPECTED_VERSION="v$(BUILD_VERSION)" XARLATAN_BIN="$(BIN_DIR)/assistant" LLAMA_SERVER_BIN="$(BIN_DIR)/llama-server" bash scripts/preflight.sh config.yaml
+preflight: build ## Validate local beta prerequisites
+	@EXPECTED_VERSION="v$(BUILD_VERSION)" XARLATAN_BIN="$(BIN_DIR)/assistant" bash scripts/preflight.sh config.yaml
 
-beta-acceptance: all ## Run interactive physical beta acceptance
-	@EXPECTED_VERSION="v$(BUILD_VERSION)" XARLATAN_BIN="$(BIN_DIR)/assistant" LLAMA_SERVER_BIN="$(BIN_DIR)/llama-server" bash scripts/beta_acceptance.sh config.yaml
+beta-acceptance: build ## Run the version-selected physical beta acceptance
+	@EXPECTED_VERSION="v$(BUILD_VERSION)" XARLATAN_BIN="$(BIN_DIR)/assistant" bash scripts/beta_acceptance.sh config.yaml
 
 clean-llama:
 	@rm -rf $(LLAMA_DIR)/build $(BIN_DIR)/llama-server
