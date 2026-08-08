@@ -10,8 +10,8 @@ func TestMainClosesOwnedResourcesInReverseAcquisitionOrder(t *testing.T) {
 
 	transcriberAcquire := strings.Index(source, "transcriber, err := stt.New(")
 	transcriberDefer := strings.Index(source, "defer func() {\n\t\tif err := transcriber.Close()")
-	serverAcquire := strings.Index(source, "serverManager, err := llm.NewServerManager(")
-	serverDefer := strings.Index(source, "defer func() {\n\t\tif err := serverManager.Stop(context.Background())")
+	responseAcquire := strings.Index(source, "responseRuntime, err := newResponseRuntime(")
+	responseDefer := strings.Index(source, "defer func() {\n\t\tif err := responseRuntime.Close()")
 	synthesizerAcquire := strings.Index(source, "synthesizer, err := tts.New(")
 	synthesizerDefer := strings.Index(source, "defer func() {\n\t\tif err := synthesizer.Close()")
 
@@ -21,8 +21,8 @@ func TestMainClosesOwnedResourcesInReverseAcquisitionOrder(t *testing.T) {
 	}{
 		{"transcriber acquire", transcriberAcquire},
 		{"transcriber defer", transcriberDefer},
-		{"server acquire", serverAcquire},
-		{"server defer", serverDefer},
+		{"response runtime acquire", responseAcquire},
+		{"response runtime defer", responseDefer},
 		{"synthesizer acquire", synthesizerAcquire},
 		{"synthesizer defer", synthesizerDefer},
 	}
@@ -32,8 +32,8 @@ func TestMainClosesOwnedResourcesInReverseAcquisitionOrder(t *testing.T) {
 		}
 	}
 
-	if !(transcriberAcquire < transcriberDefer && transcriberDefer < serverAcquire && serverAcquire < serverDefer && serverDefer < synthesizerAcquire && synthesizerAcquire < synthesizerDefer) {
-		t.Fatalf("resource acquisition/defer order is not transcriber -> server -> synthesizer: %+v", positions)
+	if !(transcriberAcquire < transcriberDefer && transcriberDefer < responseAcquire && responseAcquire < responseDefer && responseDefer < synthesizerAcquire && synthesizerAcquire < synthesizerDefer) {
+		t.Fatalf("resource acquisition/defer order is not transcriber -> response runtime -> synthesizer: %+v", positions)
 	}
-	// Go executes defers in LIFO order, yielding synthesizer -> server -> transcriber.
+	// Go executes defers in LIFO order, yielding synthesizer -> response runtime -> transcriber.
 }
