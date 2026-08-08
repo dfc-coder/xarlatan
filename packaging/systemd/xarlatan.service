@@ -1,5 +1,5 @@
 [Unit]
-Description=Xarlatan local voice assistant
+Description=Xarlatan ZeroClaw voice gateway
 Documentation=https://github.com/dfc-coder/xarlatan
 After=pipewire.service wireplumber.service network-online.target
 Wants=network-online.target
@@ -30,7 +30,7 @@ RestrictSUIDSGID=true
 LockPersonality=true
 SystemCallArchitectures=native
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-ReadWritePaths=/var/lib/xarlatan
+ReadWritePaths=/var/lib/xarlatan %h/.zeroclaw
 
 StandardOutput=journal
 StandardError=journal
