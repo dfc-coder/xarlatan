@@ -9,7 +9,7 @@ import (
 
 func TestValidateVoiceGatewayUsesVoiceModelsNotLegacySTTOrTTS(t *testing.T) {
 	cfg := operationalConfig(t)
-	configureVoiceGatewayFixture(t, cfg)
+	configureVoiceGatewayFixture(t, &cfg)
 	cfg.STT = STTConfig{}
 	cfg.TTS = TTSConfig{}
 	if err := cfg.Validate(); err != nil {
@@ -19,7 +19,7 @@ func TestValidateVoiceGatewayUsesVoiceModelsNotLegacySTTOrTTS(t *testing.T) {
 
 func TestValidateVoiceGatewayRequiresKokoroVoiceEmbedding(t *testing.T) {
 	cfg := operationalConfig(t)
-	configureVoiceGatewayFixture(t, cfg)
+	configureVoiceGatewayFixture(t, &cfg)
 	cfg.Voice.TTS.VoiceFile = filepath.Join(t.TempDir(), "missing-ef_dora.bin")
 	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "voice.tts.voice_file") {
 		t.Fatalf("Validate() error = %v, want voice.tts.voice_file", err)
@@ -42,7 +42,7 @@ func TestVoiceDefaultsPreferIntelGPUForSTTAndSpanishKokoro(t *testing.T) {
 
 func TestSileroVADConfigUsesExplicitVoiceModel(t *testing.T) {
 	cfg := operationalConfig(t)
-	configureVoiceGatewayFixture(t, cfg)
+	configureVoiceGatewayFixture(t, &cfg)
 	got, err := cfg.SileroVADConfig()
 	if err != nil {
 		t.Fatalf("SileroVADConfig() error = %v", err)
