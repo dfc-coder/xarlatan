@@ -3,7 +3,9 @@ package zeroclaw
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
+	"sync/atomic"
 
 	"github.com/dfc-coder/xarlatan/internal/conversation"
 	"github.com/dfc-coder/xarlatan/internal/llm"
@@ -33,7 +35,13 @@ func (r *VoiceResponder) Respond(ctx context.Context, text string) (conversation
 func (r *VoiceResponder) RespondStream(ctx context.Context, text string, onDelta llm.ContentDelta) (conversation.Result, error) {
 	var callback func(string) error
 	if onDelta != nil {
-		callback = func(delta string) error { return onDelta(delta) }
+		var observed atomic.Bool
+		callback = func(delta string) error {
+			if observed.CompareAndSwap(false, true) {
+				slog.Info("zeroclaw response stream started")
+			}
+			return onDelta(delta)
+		}
 	}
 	return r.respond(ctx, text, callback)
 }
