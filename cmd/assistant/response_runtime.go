@@ -20,7 +20,9 @@ func newResponseRuntime(ctx context.Context, cfg *config.Config) (*responseRunti
 	switch cfg.Agent.Mode {
 	case "voice_gateway":
 		return newVoiceGatewayRuntime(ctx, cfg)
-	case "legacy_native", "":
+	case "legacy_native":
+		return newLegacyAgentRuntime(ctx, cfg)
+	case "":
 		return newLegacyAgentRuntime(ctx, cfg)
 	default:
 		return nil, fmt.Errorf("unsupported agent mode %q", cfg.Agent.Mode)
