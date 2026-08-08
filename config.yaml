@@ -1,20 +1,50 @@
 audio:
   sample_rate: 16000
   channels: 1
-  silence_threshold: 0.015   # RMS energy threshold (0.0–1.0)
-  silence_duration_ms: 1500  # ms of silence before stopping recording
-  max_duration_s: 30         # max recording duration
-  device: "default"          # ALSA device
+  silence_threshold: 0.015
+  silence_duration_ms: 1500
+  max_duration_s: 30
+  device: "default"
 
+agent:
+  mode: "voice_gateway"       # voice_gateway | legacy_native
+  zeroclaw:
+    binary: "/usr/local/bin/zeroclaw"
+    agent_alias: "xarlatan"
+    cwd: "/var/lib/xarlatan/workspace"
+
+voice:
+  worker:
+    script: "/usr/local/lib/xarlatan/openvino_voice_worker.py"
+  vad:
+    model: "/var/lib/xarlatan/models/vad/silero_vad.onnx"
+  stt:
+    python: "/opt/xarlatan/voice/stt-venv/bin/python"
+    model_dir: "/var/lib/xarlatan/models/openvino/whisper-base"
+    language: "es"
+    device: "GPU"
+    fallback_device: "CPU"
+    cache_dir: "/var/lib/xarlatan/cache/openvino/stt"
+  tts:
+    python: "/opt/xarlatan/voice/tts-venv/bin/python"
+    model_dir: "/var/lib/xarlatan/models/openvino/kokoro"
+    voice_file: "/var/lib/xarlatan/models/openvino/kokoro/voices-v1.0.bin"
+    language: "es"
+    device: "GPU"
+    fallback_device: "CPU"
+    cache_dir: "/var/lib/xarlatan/cache/openvino/tts"
+
+# Legacy native agent and sherpa/VITS voice settings remain only for rollback
+# while v0.6 is physically validated. They are ignored in voice_gateway mode.
 stt:
   encoder: "models/stt/sherpa-onnx-whisper-base/base-encoder.onnx"
   decoder: "models/stt/sherpa-onnx-whisper-base/base-decoder.onnx"
   tokens: "models/stt/sherpa-onnx-whisper-base/base-tokens.txt"
-  language: "es"             # "auto", "es", "en", etc.
+  language: "es"
   translate: false
 
 llm:
-  mode: "managed"            # managed | external
+  mode: "managed"
   server_binary: "./bin/llama-server"
   model: "models/llm/qwen2.5-0.5b-instruct-q4_k_m.gguf"
   host: "127.0.0.1"
@@ -41,13 +71,13 @@ tts:
 
 tools:
   filesystem:
-    enabled: false            # opt-in
-    root: ""                  # absolute existing directory when enabled
-    allow_mutations: false    # fs_write/fs_delete/fs_mkdir require explicit opt-in
-    max_read_bytes: 1048576   # reject larger files before reading
-    max_write_bytes: 1048576  # reject payload/result larger than this limit
+    enabled: false
+    root: ""
+    allow_mutations: false
+    max_read_bytes: 1048576
+    max_write_bytes: 1048576
   web_search:
-    provider: "duckduckgo"   # duckduckgo | brave | searxng
+    provider: "duckduckgo"
     api_key: ""
     base_url: ""
 
