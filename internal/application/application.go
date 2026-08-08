@@ -122,27 +122,27 @@ type Event struct {
 // are monotonic durations since the local turn recorder started; derived values
 // are differences between those boundaries and never contain conversation data.
 type Trace struct {
-	TurnID                 uint64
-	States                 []State
-	StageDurations         map[State]time.Duration
-	TotalDuration          time.Duration
-	FirstSTTPartial        time.Duration
-	EndOfSpeech            time.Duration
-	FinalTranscript        time.Duration
-	FirstResponseDelta     time.Duration
-	FirstPCM               time.Duration
-	FirstAudio             time.Duration
-	STTLatency             time.Duration
-	AgentTTFT              time.Duration
-	TTSFirstChunkLatency   time.Duration
-	PlaybackLatency        time.Duration
-	EOSToFirstAudio        time.Duration
-	InterruptLatency       time.Duration
-	SampleCount            int
-	TranscriptChars        int
-	ReplyChars             int
-	Outcome                string
-	ErrorCode              ErrorCode
+	TurnID               uint64
+	States               []State
+	StageDurations       map[State]time.Duration
+	TotalDuration        time.Duration
+	FirstSTTPartial      time.Duration
+	EndOfSpeech          time.Duration
+	FinalTranscript      time.Duration
+	FirstResponseDelta   time.Duration
+	FirstPCM             time.Duration
+	FirstAudio           time.Duration
+	STTLatency           time.Duration
+	AgentTTFT            time.Duration
+	TTSFirstChunkLatency time.Duration
+	PlaybackLatency      time.Duration
+	EOSToFirstAudio      time.Duration
+	InterruptLatency     time.Duration
+	SampleCount          int
+	TranscriptChars      int
+	ReplyChars           int
+	Outcome              string
+	ErrorCode            ErrorCode
 }
 
 // Result is the observable outcome of one voice turn.
@@ -486,8 +486,14 @@ func (r *turnRecorder) finish(trace Trace) Trace {
 	if trace.EndOfSpeech == 0 {
 		trace.EndOfSpeech = r.endOfSpeech
 	}
+	if trace.EndOfSpeech == 0 {
+		trace.EndOfSpeech = positiveDuration(r.durations[StateListening])
+	}
 	if trace.FinalTranscript == 0 {
 		trace.FinalTranscript = r.finalTranscript
+	}
+	if trace.FinalTranscript == 0 && trace.EndOfSpeech > 0 && r.durations[StateTranscribing] > 0 {
+		trace.FinalTranscript = trace.EndOfSpeech + positiveDuration(r.durations[StateTranscribing])
 	}
 	if trace.FirstResponseDelta == 0 {
 		trace.FirstResponseDelta = r.firstResponseDelta
@@ -497,6 +503,9 @@ func (r *turnRecorder) finish(trace Trace) Trace {
 	}
 	if trace.FirstAudio == 0 {
 		trace.FirstAudio = r.firstAudio
+	}
+	if trace.FirstPCM == 0 && trace.FirstAudio > 0 {
+		trace.FirstPCM = trace.FirstAudio
 	}
 	trace.STTLatency = metricDelta(trace.EndOfSpeech, trace.FinalTranscript)
 	trace.AgentTTFT = metricDelta(trace.FinalTranscript, trace.FirstResponseDelta)
