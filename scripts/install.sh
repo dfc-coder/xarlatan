@@ -53,12 +53,13 @@ resolve_target_identity() {
 
 require_artifacts() {
   local artifact
-  for artifact in assistant calibrate llama-server; do
-    [[ -x "$ROOT/bin/$artifact" ]] || die "missing executable bin/$artifact; run 'make all' first"
+  for artifact in assistant calibrate; do
+    [[ -x "$ROOT/bin/$artifact" ]] || die "missing executable bin/$artifact; run 'make build' first"
   done
   [[ -f "$ROOT/packaging/config.yaml" ]] || die "missing packaging/config.yaml"
   [[ -f "$ROOT/packaging/systemd/xarlatan.service" ]] || die "missing systemd user unit"
   [[ -f "$ROOT/scripts/collect_runtime_libs.sh" ]] || die "missing runtime library collector"
+  [[ -f "$ROOT/scripts/openvino_voice_worker.py" ]] || die "missing OpenVINO voice worker"
 }
 
 backup_one() {
@@ -115,6 +116,7 @@ install_runtime_libraries() {
   done < <(find "$runtime_stage" -maxdepth 1 -type f -print0)
   rm -rf "$runtime_stage"
 
+  install -Dm755 "$ROOT/scripts/openvino_voice_worker.py" "$LIB_DIR/openvino_voice_worker.py"
   install -d -m755 "$(dirname "$LDSO_CONF_FILE")"
   printf '%s\n' "$PREFIX/lib/xarlatan" > "$LDSO_CONF_FILE"
   chmod 0644 "$LDSO_CONF_FILE"
@@ -123,11 +125,13 @@ install_runtime_libraries() {
 install_artifacts() {
   install -Dm755 "$ROOT/bin/assistant" "$BIN_DIR/xarlatan"
   install -Dm755 "$ROOT/bin/calibrate" "$BIN_DIR/xarlatan-calibrate"
-  install -Dm755 "$ROOT/bin/llama-server" "$BIN_DIR/llama-server"
+  if [[ -x "$ROOT/bin/llama-server" ]]; then
+    install -Dm755 "$ROOT/bin/llama-server" "$BIN_DIR/llama-server"
+  fi
   install -Dm644 "$ROOT/packaging/systemd/xarlatan.service" "$USER_SERVICE_FILE"
   rm -f "$LEGACY_SERVICE_FILE"
 
-  mkdir -p "$CONFIG_DIR" "$DATA_DIR/models"
+  mkdir -p "$CONFIG_DIR" "$DATA_DIR/models" "$DATA_DIR/workspace" "$DATA_DIR/cache/openvino/stt" "$DATA_DIR/cache/openvino/tts"
   if [[ ! -e "$CONFIG_DIR/config.yaml" ]]; then
     install -m640 "$ROOT/packaging/config.yaml" "$CONFIG_DIR/config.yaml"
   fi
@@ -138,7 +142,7 @@ install_artifacts() {
 
 set_permissions() {
   chmod 0640 "$CONFIG_DIR/config.yaml"
-  chmod 0750 "$DATA_DIR" "$DATA_DIR/models"
+  chmod 0750 "$DATA_DIR" "$DATA_DIR/models" "$DATA_DIR/workspace" "$DATA_DIR/cache"
   find "$DATA_DIR/models" -type d -exec chmod 0750 {} +
   find "$DATA_DIR/models" -type f -exec chmod 0640 {} +
   chmod 0755 "$LIB_DIR"
@@ -192,6 +196,7 @@ reload_user_systemd
 
 log "Xarlatan installation complete for desktop user: $TARGET_USER"
 log "Configuration: $SYSCONFDIR/xarlatan/config.yaml"
+log "Voice runtime setup: sudo bash ./scripts/setup_voice_runtime.sh"
 log "Enable explicitly as $TARGET_USER: systemctl --user enable --now xarlatan"
 log "Logs: journalctl --user -u xarlatan -f"
 log "Rollback: sudo make rollback"
