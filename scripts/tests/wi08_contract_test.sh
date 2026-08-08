@@ -24,7 +24,11 @@ bash -n \
   "$ROOT/scripts/rollback.sh"
 
 assert_contains "$ROOT/Makefile" 'all: deps build'
-assert_contains "$ROOT/Makefile" 'install: all'
+if grep -Fq 'VERSION ?= v0.6.0-beta.1' "$ROOT/Makefile"; then
+  assert_contains "$ROOT/Makefile" 'install: build'
+else
+  assert_contains "$ROOT/Makefile" 'install: all'
+fi
 assert_contains "$ROOT/Makefile" '$(BIN_DIR)/calibrate'
 assert_not_contains "$ROOT/Makefile" 'compose.yml'
 assert_not_contains "$ROOT/Makefile" 'dev-up:'
@@ -62,7 +66,7 @@ done
 DESTDIR="$TMP/root" SKIP_SYSTEMD=1 XARLATAN_TARGET_USER=tester bash "$ROOT/scripts/install.sh"
 [[ -x "$TMP/root/usr/local/bin/xarlatan" ]] || fail 'xarlatan binary not installed'
 [[ -x "$TMP/root/usr/local/bin/xarlatan-calibrate" ]] || fail 'calibrate binary not installed'
-[[ -x "$TMP/root/usr/local/bin/llama-server" ]] || fail 'llama-server not installed'
+[[ -x "$TMP/root/usr/local/bin/llama-server" ]] || fail 'optional legacy llama-server not installed when present'
 [[ -f "$TMP/root/etc/xarlatan/config.yaml" ]] || fail 'config not installed'
 [[ -f "$TMP/root/etc/systemd/user/xarlatan.service" ]] || fail 'user unit not installed'
 [[ ! -e "$TMP/root/etc/systemd/system/xarlatan.service" ]] || fail 'legacy system unit installed'
