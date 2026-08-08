@@ -28,7 +28,21 @@ type Config struct {
 	LLM   LLMConfig   `yaml:"llm"`
 	TTS   TTSConfig   `yaml:"tts"`
 	Tools ToolsConfig `yaml:"tools"`
+	Agent AgentConfig `yaml:"agent"`
 	Log   LogConfig   `yaml:"log"`
+}
+
+// AgentConfig selects which side owns the conversational agent plane.
+type AgentConfig struct {
+	Mode     string         `yaml:"mode"`
+	ZeroClaw ZeroClawConfig `yaml:"zeroclaw"`
+}
+
+// ZeroClawConfig configures the ACP subprocess used in voice_gateway mode.
+type ZeroClawConfig struct {
+	Binary     string `yaml:"binary"`
+	AgentAlias string `yaml:"agent_alias"`
+	CWD        string `yaml:"cwd"`
 }
 
 // ToolsConfig enables and configures tool use.
@@ -167,6 +181,12 @@ func Load(path string) (*Config, error) {
 }
 
 func (c *Config) applyDefaults(document *yaml.Node) {
+	if c.Agent.Mode == "" {
+		c.Agent.Mode = "legacy_native"
+	}
+	if c.Agent.ZeroClaw.AgentAlias == "" {
+		c.Agent.ZeroClaw.AgentAlias = "xarlatan"
+	}
 	if c.Tools.WebSearch.Provider == "" {
 		c.Tools.WebSearch.Provider = "duckduckgo"
 	}
@@ -298,9 +318,23 @@ func (c *Config) Validate() error {
 	if strings.TrimSpace(c.Audio.Device) == "" {
 		return fmt.Errorf("audio.device is required")
 	}
-	if err := validateLLM(c.LLM); err != nil {
+
+	mode, err := validateAgent(c.Agent)
+	if err != nil {
 		return err
 	}
+	if mode == "legacy_native" {
+		if err := validateLLM(c.LLM); err != nil {
+			return err
+		}
+		if err := validateFilesystem(c.Tools.Filesystem); err != nil {
+			return err
+		}
+		if err := validateWebSearch(c.Tools.WebSearch); err != nil {
+			return err
+		}
+	}
+
 	if c.TTS.LengthScale <= 0 {
 		return fmt.Errorf("tts.length_scale must be greater than zero")
 	}
@@ -309,12 +343,6 @@ func (c *Config) Validate() error {
 	}
 	if c.TTS.NoiseW < 0 {
 		return fmt.Errorf("tts.noise_w must not be negative")
-	}
-	if err := validateFilesystem(c.Tools.Filesystem); err != nil {
-		return err
-	}
-	if err := validateWebSearch(c.Tools.WebSearch); err != nil {
-		return err
 	}
 	if err := validateLogLevel(c.Log.Level); err != nil {
 		return err
@@ -338,6 +366,32 @@ func (c *Config) Validate() error {
 		return err
 	}
 	return nil
+}
+
+func validateAgent(cfg AgentConfig) (string, error) {
+	mode := strings.TrimSpace(cfg.Mode)
+	if mode == "" {
+		mode = "legacy_native"
+	}
+	switch mode {
+	case "legacy_native":
+		return mode, nil
+	case "voice_gateway":
+		if err := validateExecutable("agent.zeroclaw.binary", cfg.ZeroClaw.Binary); err != nil {
+			return "", err
+		}
+		if cwd := strings.TrimSpace(cfg.ZeroClaw.CWD); cwd != "" {
+			if !filepath.IsAbs(cwd) {
+				return "", fmt.Errorf("agent.zeroclaw.cwd must be an absolute path")
+			}
+			if err := validateDirectory("agent.zeroclaw.cwd", cwd); err != nil {
+				return "", err
+			}
+		}
+		return mode, nil
+	default:
+		return "", fmt.Errorf("agent.mode must be legacy_native or voice_gateway")
+	}
 }
 
 func validateLLM(cfg LLMConfig) error {
