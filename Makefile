@@ -18,7 +18,7 @@ ifdef GGML_CUDA
   CMAKE_LLAMA_EXTRA := -DGGML_CUDA=ON
 endif
 
-.PHONY: all build runtime-libs deps llama models install uninstall rollback release-candidate preflight beta-acceptance clean clean-all clean-llama reset-llama help FORCE
+.PHONY: all build runtime-libs deps llama models install uninstall rollback release-candidate preflight beta-acceptance fmt format-check dev-setup clean clean-all clean-llama reset-llama help FORCE
 
 all: deps build ## Build llama-server, Go commands and native runtime libraries
 
@@ -42,6 +42,17 @@ $(BIN_DIR)/llama-server:
 	@cmake --build $(LLAMA_DIR)/build --config Release --target llama-server -j$(NPROC)
 	@cp $(LLAMA_DIR)/build/bin/llama-server $(BIN_DIR)/llama-server
 	@echo "✓ llama-server built → bin/llama-server"
+
+fmt: ## Format every tracked Go file
+	@bash scripts/gofmt_guard.sh fix
+
+format-check: ## Fail if any tracked Go file is not gofmt-clean
+	@bash scripts/gofmt_guard.sh check
+
+dev-setup: ## Install repository-local Git hooks for this checkout
+	@git config core.hooksPath .githooks
+	@chmod +x .githooks/pre-commit
+	@echo "✓ Git hooks enabled from .githooks"
 
 build: $(BIN_DIR)/assistant $(BIN_DIR)/calibrate runtime-libs ## Build Go commands and stage native runtime libraries
 
