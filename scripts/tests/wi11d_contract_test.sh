@@ -7,7 +7,7 @@ cd "${ROOT_DIR}"
 bash -n scripts/beta_acceptance.sh
 bash -n scripts/beta_v05_acceptance.sh
 
-if ! grep -Fq 'VERSION ?= v0.5.0-beta.1' Makefile && ! grep -Fq 'VERSION ?= v0.6.0-beta.1' Makefile; then
+if ! grep -Fq 'VERSION ?= v0.5.0-beta.1' Makefile && ! grep -Fq 'VERSION ?= v0.6.0-beta.1' Makefile && ! grep -Fq 'VERSION ?= v0.7.0' Makefile; then
   echo 'expected a supported beta default version' >&2
   exit 1
 fi

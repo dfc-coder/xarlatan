@@ -62,7 +62,7 @@ jobs:
           go test -count=1 -coverprofile=wake-coverage.out ./internal/wake
           go test -count=1 -coverprofile=barge-coverage.out ./internal/barge
           go test -count=1 -coverprofile=inference-coverage.out ./internal/inference
-          go test -count=1 -coverprofile=zeroclaw-coverage.out ./internal/zeroclaw
+          go test -count=1 -coverprofile=acp-coverage.out ./internal/acp
 
           enforce() {
             local name="$1"
@@ -83,24 +83,25 @@ jobs:
           enforce wake wake-coverage.out 80
           enforce barge barge-coverage.out 80
           enforce inference inference-coverage.out 70
-          enforce zeroclaw zeroclaw-coverage.out 70
+          enforce acp acp-coverage.out 80
 
       - name: Repeat focused tests
-        run: go test -count=20 ./internal/orchestrator ./internal/tools ./internal/llm ./internal/memory ./internal/vad/... ./internal/wake ./internal/barge ./internal/audio ./internal/conversation ./internal/application ./internal/inference ./internal/zeroclaw
+        run: go test -count=20 ./internal/orchestrator ./internal/tools ./internal/llm ./internal/memory ./internal/vad/... ./internal/wake ./internal/barge ./internal/audio ./internal/conversation ./internal/application ./internal/inference ./internal/acp
 
       - name: Race-test focused packages
-        run: go test -race -count=1 ./internal/orchestrator ./internal/tools ./internal/llm ./internal/memory ./internal/vad/... ./internal/wake ./internal/barge ./internal/audio ./internal/conversation ./internal/application ./internal/inference ./internal/zeroclaw
+        run: go test -race -count=1 ./internal/orchestrator ./internal/tools ./internal/llm ./internal/memory ./internal/vad/... ./internal/wake ./internal/barge ./internal/audio ./internal/conversation ./internal/application ./internal/inference ./internal/acp
 
       - name: Verify voice worker and operational scripts
         run: |
           python3 -m py_compile scripts/openvino_voice_worker.py
           bash -n scripts/setup_voice_runtime.sh
           bash -n scripts/beta_v06_acceptance.sh
+          bash -n scripts/beta_v07_acceptance.sh
 
       - name: Build and verify version
         run: |
           make clean build
-          test "$(./bin/assistant -version)" = "assistant v0.6.0-beta.1"
+          test "$(./bin/assistant -version)" = "assistant v0.7.0"
           test -x ./bin/calibrate
           test ! -e ./bin/llama-server
 
@@ -109,15 +110,15 @@ jobs:
           shellcheck --exclude=SC2016 \
             scripts/install.sh scripts/uninstall.sh scripts/rollback.sh \
             scripts/download_models.sh scripts/preflight.sh \
-            scripts/beta_acceptance.sh scripts/beta_v05_acceptance.sh scripts/beta_v06_acceptance.sh \
+            scripts/beta_acceptance.sh scripts/beta_v05_acceptance.sh scripts/beta_v06_acceptance.sh scripts/beta_v07_acceptance.sh \
             scripts/package_release.sh scripts/setup_voice_runtime.sh \
             scripts/collect_runtime_libs.sh scripts/gofmt_guard.sh \
             scripts/tests/wi08_contract_test.sh scripts/tests/wi09_contract_test.sh \
-            scripts/tests/wi11d_contract_test.sh scripts/tests/v06_contract_test.sh
+            scripts/tests/wi11d_contract_test.sh scripts/tests/v06_contract_test.sh scripts/tests/v07_contract_test.sh
           bash scripts/tests/wi08_contract_test.sh
           bash scripts/tests/wi09_contract_test.sh
           bash scripts/tests/wi11d_contract_test.sh
-          bash scripts/tests/v06_contract_test.sh
+          bash scripts/tests/v07_contract_test.sh
 
       - name: Verify systemd user unit and hardening
         run: |
@@ -140,4 +141,4 @@ jobs:
             wake-coverage.out
             barge-coverage.out
             inference-coverage.out
-            zeroclaw-coverage.out
+            acp-coverage.out

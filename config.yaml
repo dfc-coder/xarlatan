@@ -8,9 +8,9 @@ audio:
 
 agent:
   mode: "voice_gateway"       # voice_gateway | legacy_native
-  zeroclaw:
+  acp:
     binary: "/usr/local/bin/zeroclaw"
-    agent_alias: "xarlatan"
+    args: ["acp"]
     cwd: "/var/lib/xarlatan/workspace"
 
 voice:
@@ -35,7 +35,7 @@ voice:
     cache_dir: "/var/lib/xarlatan/cache/openvino/tts"
 
 # Legacy native agent and sherpa/VITS voice settings remain only for rollback
-# while v0.6 is physically validated. They are ignored in voice_gateway mode.
+# while the native rollback path remains supported. They are ignored in voice_gateway mode.
 stt:
   encoder: "models/stt/sherpa-onnx-whisper-base/base-encoder.onnx"
   decoder: "models/stt/sherpa-onnx-whisper-base/base-decoder.onnx"

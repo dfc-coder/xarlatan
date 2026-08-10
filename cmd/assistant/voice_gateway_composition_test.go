@@ -11,7 +11,7 @@ import (
 func TestVoiceGatewayRuntimeIsolatedFromLocalAgentStack(t *testing.T) {
 	source := readCompositionSource(t, "voice_gateway_runtime.go")
 	for _, required := range []string{
-		"zeroclaw.StartRuntime(",
+		"acp.StartRuntime(",
 		"runtime.Responder()",
 	} {
 		if !strings.Contains(source, required) {
@@ -19,6 +19,8 @@ func TestVoiceGatewayRuntimeIsolatedFromLocalAgentStack(t *testing.T) {
 		}
 	}
 	for _, forbidden := range []string{
+		"internal/zeroclaw",
+		"zeroclaw.StartRuntime(",
 		"llm.NewServerManager(",
 		"llm.NewClient(",
 		"memory.New(",

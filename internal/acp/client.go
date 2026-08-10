@@ -1,4 +1,4 @@
-package zeroclaw
+package acp
 
 import (
 	"bufio"
@@ -7,40 +7,48 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
 )
 
 var (
-	ErrProtocolVersion = errors.New("zeroclaw ACP protocol version mismatch")
-	ErrSessionBusy     = errors.New("zeroclaw ACP session busy")
-	ErrClosed          = errors.New("zeroclaw ACP client closed")
+	ErrProtocolVersion = errors.New("ACP protocol version mismatch")
+	ErrSessionBusy     = errors.New("ACP session busy")
+	ErrClosed          = errors.New("ACP client closed")
 )
 
-// Config contains the ACP session settings owned by the voice gateway.
-type Config struct {
-	AgentAlias string
-	CWD        string
+// ClientConfig contains the portable ACP session settings owned by Xarlatan.
+type ClientConfig struct {
+	CWD string
 }
 
-// Result is the terminal, user-facing outcome of one ZeroClaw prompt turn.
+// AgentInfo is optional metadata advertised by the ACP server at initialize.
+type AgentInfo struct {
+	Name    string
+	Title   string
+	Version string
+}
+
+// Result is the terminal user-facing outcome of one ACP prompt turn.
 type Result struct {
 	Reply      string
 	StopReason string
 }
 
-// Client is a single-session ACP v1 client. It deliberately permits only one
-// prompt in flight because Xarlatan serializes voice turns per conversation.
+// Client is a single-session ACP v1 client. Xarlatan serializes prompts for a
+// voice session, so at most one prompt is active at a time.
 type Client struct {
 	reader *bufio.Reader
 	writer io.Writer
-	cfg    Config
+	cfg    ClientConfig
 
 	writeMu sync.Mutex
 	stateMu sync.Mutex
 	closed  bool
 	session string
+	info    AgentInfo
 
 	promptBusy atomic.Bool
 	nextID     atomic.Uint64
@@ -49,12 +57,19 @@ type Client struct {
 }
 
 // NewClient builds an ACP client over newline-delimited JSON-RPC streams.
-func NewClient(reader io.Reader, writer io.Writer, cfg Config) (*Client, error) {
+func NewClient(reader io.Reader, writer io.Writer, cfg ClientConfig) (*Client, error) {
 	if reader == nil {
-		return nil, errors.New("zeroclaw ACP reader is nil")
+		return nil, errors.New("ACP reader is nil")
 	}
 	if writer == nil {
-		return nil, errors.New("zeroclaw ACP writer is nil")
+		return nil, errors.New("ACP writer is nil")
+	}
+	cfg.CWD = strings.TrimSpace(cfg.CWD)
+	if cfg.CWD == "" {
+		return nil, errors.New("ACP cwd is required")
+	}
+	if !filepath.IsAbs(cfg.CWD) {
+		return nil, errors.New("ACP cwd must be an absolute path")
 	}
 	return &Client{reader: bufio.NewReader(reader), writer: writer, cfg: cfg}, nil
 }
@@ -63,7 +78,7 @@ func NewClient(reader io.Reader, writer io.Writer, cfg Config) (*Client, error) 
 // the lifetime of this client.
 func (c *Client) Initialize(ctx context.Context) error {
 	if c == nil {
-		return errors.New("zeroclaw ACP client is nil")
+		return errors.New("ACP client is nil")
 	}
 	ctx = nonNilContext(ctx)
 	if err := ctx.Err(); err != nil {
@@ -94,24 +109,17 @@ func (c *Client) Initialize(ctx context.Context) error {
 	if !ok || version != 1 {
 		return fmt.Errorf("%w: server=%v want=1", ErrProtocolVersion, result["protocolVersion"])
 	}
+	info := parseAgentInfo(result["agentInfo"])
 
-	params := map[string]any{}
-	if alias := strings.TrimSpace(c.cfg.AgentAlias); alias != "" {
-		params["agentAlias"] = alias
-	}
-	if cwd := strings.TrimSpace(c.cfg.CWD); cwd != "" {
-		params["cwd"] = cwd
-	}
 	id = c.requestID()
-	request := map[string]any{
+	if err := c.write(map[string]any{
 		"jsonrpc": "2.0",
 		"id":      id,
 		"method":  "session/new",
-	}
-	if len(params) > 0 {
-		request["params"] = params
-	}
-	if err := c.write(request); err != nil {
+		"params": map[string]any{
+			"cwd": c.cfg.CWD,
+		},
+	}); err != nil {
 		return err
 	}
 	message, err = c.readResponse(ctx, id)
@@ -125,7 +133,7 @@ func (c *Client) Initialize(ctx context.Context) error {
 	sessionID, _ := result["sessionId"].(string)
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
-		return errors.New("zeroclaw ACP session/new returned empty sessionId")
+		return errors.New("ACP session/new returned empty sessionId")
 	}
 
 	c.stateMu.Lock()
@@ -134,16 +142,27 @@ func (c *Client) Initialize(ctx context.Context) error {
 		return ErrClosed
 	}
 	c.session = sessionID
+	c.info = info
 	c.stateMu.Unlock()
 	return nil
 }
 
-// RespondStream sends one authoritative transcript to ZeroClaw and forwards
-// only agent_message_chunk text to onDelta. Thoughts, tool payloads and other
-// session updates are intentionally not voice-eligible.
+// AgentInfo returns a copy of the bounded metadata advertised at initialize.
+func (c *Client) AgentInfo() AgentInfo {
+	if c == nil {
+		return AgentInfo{}
+	}
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c.info
+}
+
+// RespondStream submits an authoritative text transcript and forwards only
+// user-facing agent_message_chunk text. Plans, thoughts and tool payloads are
+// deliberately not voice-eligible.
 func (c *Client) RespondStream(ctx context.Context, prompt string, onDelta func(string) error) (Result, error) {
 	if c == nil {
-		return Result{}, errors.New("zeroclaw ACP client is nil")
+		return Result{}, errors.New("ACP client is nil")
 	}
 	ctx = nonNilContext(ctx)
 	if !c.promptBusy.CompareAndSwap(false, true) {
@@ -166,7 +185,9 @@ func (c *Client) RespondStream(ctx context.Context, prompt string, onDelta func(
 		"method":  "session/prompt",
 		"params": map[string]any{
 			"sessionId": sessionID,
-			"prompt":    prompt,
+			"prompt": []any{
+				map[string]any{"type": "text", "text": prompt},
+			},
 		},
 	}); err != nil {
 		return Result{}, err
@@ -189,6 +210,7 @@ func (c *Client) RespondStream(ctx context.Context, prompt string, onDelta func(
 		}
 	}()
 
+	var streamed strings.Builder
 	for {
 		message, err := c.read()
 		if err != nil {
@@ -205,7 +227,11 @@ func (c *Client) RespondStream(ctx context.Context, prompt string, onDelta func(
 					continue
 				}
 				delta := voiceDelta(message, sessionID)
-				if delta != "" && onDelta != nil {
+				if delta == "" {
+					continue
+				}
+				streamed.WriteString(delta)
+				if onDelta != nil {
 					if err := onDelta(delta); err != nil {
 						return Result{}, err
 					}
@@ -231,7 +257,11 @@ func (c *Client) RespondStream(ctx context.Context, prompt string, onDelta func(
 		if cancelled.Load() || ctx.Err() != nil {
 			return Result{}, context.Canceled
 		}
+
 		reply, _ := result["content"].(string)
+		if strings.TrimSpace(reply) == "" {
+			reply = streamed.String()
+		}
 		stopReason, _ := result["stopReason"].(string)
 		return Result{Reply: strings.TrimSpace(reply), StopReason: stopReason}, nil
 	}
@@ -286,6 +316,18 @@ func voiceDelta(message map[string]any, sessionID string) string {
 	return text
 }
 
+func parseAgentInfo(value any) AgentInfo {
+	raw, _ := value.(map[string]any)
+	name, _ := raw["name"].(string)
+	title, _ := raw["title"].(string)
+	version, _ := raw["version"].(string)
+	return AgentInfo{
+		Name:    strings.TrimSpace(name),
+		Title:   strings.TrimSpace(title),
+		Version: strings.TrimSpace(version),
+	}
+}
+
 func (c *Client) readResponse(ctx context.Context, id uint64) (map[string]any, error) {
 	for {
 		if err := ctx.Err(); err != nil {
@@ -313,11 +355,11 @@ func (c *Client) read() (map[string]any, error) {
 		if errors.Is(err, io.EOF) {
 			return nil, io.EOF
 		}
-		return nil, fmt.Errorf("read zeroclaw ACP: %w", err)
+		return nil, fmt.Errorf("read ACP: %w", err)
 	}
 	var message map[string]any
 	if err := json.Unmarshal(line, &message); err != nil {
-		return nil, fmt.Errorf("decode zeroclaw ACP: %w", err)
+		return nil, fmt.Errorf("decode ACP: %w", err)
 	}
 	return message, nil
 }
@@ -328,13 +370,13 @@ func (c *Client) write(message any) error {
 	}
 	payload, err := json.Marshal(message)
 	if err != nil {
-		return fmt.Errorf("encode zeroclaw ACP: %w", err)
+		return fmt.Errorf("encode ACP: %w", err)
 	}
 	payload = append(payload, '\n')
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
 	if _, err := c.writer.Write(payload); err != nil {
-		return fmt.Errorf("write zeroclaw ACP: %w", err)
+		return fmt.Errorf("write ACP: %w", err)
 	}
 	return nil
 }
@@ -350,7 +392,7 @@ func (c *Client) sessionID() (string, error) {
 		return "", ErrClosed
 	}
 	if c.session == "" {
-		return "", errors.New("zeroclaw ACP client is not initialized")
+		return "", errors.New("ACP client is not initialized")
 	}
 	return c.session, nil
 }
@@ -378,11 +420,6 @@ func (c *Client) Close() error {
 				errs = append(errs, err)
 			}
 		}
-		if closer, ok := any(c.reader).(io.Closer); ok {
-			if err := closer.Close(); err != nil && !errors.Is(err, io.ErrClosedPipe) {
-				errs = append(errs, err)
-			}
-		}
 		c.closeErr = errors.Join(errs...)
 	})
 	return c.closeErr
@@ -390,11 +427,11 @@ func (c *Client) Close() error {
 
 func responseResult(message map[string]any) (map[string]any, error) {
 	if rawErr, ok := message["error"]; ok && rawErr != nil {
-		return nil, fmt.Errorf("zeroclaw ACP error: %v", rawErr)
+		return nil, fmt.Errorf("ACP error: %v", rawErr)
 	}
 	result, ok := message["result"].(map[string]any)
 	if !ok {
-		return nil, errors.New("zeroclaw ACP response missing result")
+		return nil, errors.New("ACP response missing result")
 	}
 	return result, nil
 }

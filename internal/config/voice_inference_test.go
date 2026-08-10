@@ -58,12 +58,12 @@ func TestSileroVADConfigUsesExplicitVoiceModel(t *testing.T) {
 func configureVoiceGatewayFixture(t *testing.T, cfg *Config) {
 	t.Helper()
 	root := t.TempDir()
-	zeroClaw := filepath.Join(root, "zeroclaw")
+	agentBinary := filepath.Join(root, "agent-acp")
 	python := filepath.Join(root, "python3")
 	workerScript := filepath.Join(root, "openvino_voice_worker.py")
 	vadModel := filepath.Join(root, "silero_vad.onnx")
 	voiceFile := filepath.Join(root, "ef_dora.bin")
-	for _, path := range []string{zeroClaw, python} {
+	for _, path := range []string{agentBinary, python} {
 		if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
 			t.Fatalf("write executable: %v", err)
 		}
@@ -80,7 +80,7 @@ func configureVoiceGatewayFixture(t *testing.T, cfg *Config) {
 			t.Fatalf("mkdir: %v", err)
 		}
 	}
-	cfg.Agent = AgentConfig{Mode: "voice_gateway", ZeroClaw: ZeroClawConfig{Binary: zeroClaw, AgentAlias: "xarlatan"}}
+	cfg.Agent = AgentConfig{Mode: "voice_gateway", ACP: ACPConfig{Binary: agentBinary, Args: []string{"acp"}, CWD: root}}
 	cfg.Voice = VoiceConfig{
 		Worker: VoiceWorkerConfig{Python: python, Script: workerScript},
 		VAD:    VoiceVADConfig{Model: vadModel},

@@ -54,6 +54,27 @@ yaml_value() {
   ' "$CONFIG"
 }
 
+yaml_nested_value() {
+  local section="$1"
+  local subsection="$2"
+  local key="$3"
+  awk -v section="$section" -v subsection="$subsection" -v key="$key" '
+    $0 ~ "^" section ":[[:space:]]*$" { in_section=1; next }
+    in_section && $0 ~ "^[^[:space:]#]" { exit }
+    in_section && $0 ~ "^[[:space:]]{2}" subsection ":[[:space:]]*$" { in_subsection=1; next }
+    in_subsection && $0 ~ "^[[:space:]]{2}[^[:space:]#]" { exit }
+    in_subsection && $0 ~ "^[[:space:]]{4}" key ":[[:space:]]*" {
+      line=$0
+      sub("^[[:space:]]{4}" key ":[[:space:]]*", "", line)
+      sub(/[[:space:]]+#.*/, "", line)
+      gsub(/^"|"$/, "", line)
+      gsub(/^\047|\047$/, "", line)
+      print line
+      exit
+    }
+  ' "$CONFIG"
+}
+
 resolve_config_path() {
   local value="$1"
   if [[ "$value" = /* ]]; then
@@ -123,10 +144,19 @@ if [[ -x "$XARLATAN_BIN" ]]; then
 else
   fail "assistant binary not executable: $XARLATAN_BIN"
 fi
-if [[ -x "$LLAMA_SERVER_BIN" ]]; then
-  pass "llama-server binary: $LLAMA_SERVER_BIN"
+AGENT_MODE="legacy_native"
+if [[ -f "$CONFIG" ]]; then
+  AGENT_MODE="$(yaml_value agent mode)"
+  AGENT_MODE="${AGENT_MODE:-legacy_native}"
+fi
+if [[ "$AGENT_MODE" == "legacy_native" ]]; then
+  if [[ -x "$LLAMA_SERVER_BIN" ]]; then
+    pass "llama-server binary: $LLAMA_SERVER_BIN"
+  else
+    fail "llama-server not executable: $LLAMA_SERVER_BIN"
+  fi
 else
-  fail "llama-server not executable: $LLAMA_SERVER_BIN"
+  pass "voice_gateway does not require llama-server"
 fi
 
 if [[ -x "$XARLATAN_BIN" ]]; then
@@ -146,40 +176,70 @@ if [[ -x "$XARLATAN_BIN" ]]; then
 fi
 
 if [[ -f "$CONFIG" ]]; then
-  stt_encoder="$(yaml_value stt encoder)"
-  stt_decoder="$(yaml_value stt decoder)"
-  stt_tokens="$(yaml_value stt tokens)"
-  llm_model="$(yaml_value llm model)"
-  tts_model="$(yaml_value tts model)"
-  tts_tokens="$(yaml_value tts tokens)"
-  tts_data="$(yaml_value tts data_dir)"
-  llm_host="$(yaml_value llm host)"
+  if [[ "$AGENT_MODE" == "voice_gateway" ]]; then
+    acp_binary="$(yaml_nested_value agent acp binary)"
+    acp_cwd="$(yaml_nested_value agent acp cwd)"
+    worker_script="$(yaml_nested_value voice worker script)"
+    vad_model="$(yaml_nested_value voice vad model)"
+    stt_python="$(yaml_nested_value voice stt python)"
+    stt_model_dir="$(yaml_nested_value voice stt model_dir)"
+    tts_python="$(yaml_nested_value voice tts python)"
+    tts_model_dir="$(yaml_nested_value voice tts model_dir)"
+    tts_voice_file="$(yaml_nested_value voice tts voice_file)"
 
-  stt_encoder_path="$(resolve_config_path "$stt_encoder")"
-  check_file "STT encoder" "$stt_encoder_path"
-  check_file "STT decoder" "$(resolve_config_path "$stt_decoder")"
-  check_file "STT tokens" "$(resolve_config_path "$stt_tokens")"
-  check_file "Silero VAD model" "$(infer_vad_model_path "$stt_encoder_path")"
-  check_file "LLM model" "$(resolve_config_path "$llm_model")"
-  check_file "TTS model" "$(resolve_config_path "$tts_model")"
-  check_file "TTS tokens" "$(resolve_config_path "$tts_tokens")"
-  tts_data_path="$(resolve_config_path "$tts_data")"
-  if [[ -d "$tts_data_path" ]]; then
-    pass "TTS data: $tts_data_path"
+    if [[ -n "$acp_binary" && -x "$acp_binary" ]]; then
+      pass "ACP executable: $acp_binary"
+    else
+      fail "ACP executable missing or not executable: ${acp_binary:-unset}"
+    fi
+    if [[ -n "$acp_cwd" && "$acp_cwd" == /* && -d "$acp_cwd" ]]; then
+      pass "ACP workspace: $acp_cwd"
+    else
+      fail "ACP workspace must be an existing absolute directory: ${acp_cwd:-unset}"
+    fi
+    check_file "voice worker" "$worker_script"
+    check_file "Silero VAD model" "$vad_model"
+    if [[ -x "$stt_python" ]]; then pass "STT Python: $stt_python"; else fail "STT Python not executable: $stt_python"; fi
+    if [[ -d "$stt_model_dir" ]]; then pass "Whisper model directory: $stt_model_dir"; else fail "Whisper model directory missing: $stt_model_dir"; fi
+    if [[ -x "$tts_python" ]]; then pass "TTS Python: $tts_python"; else fail "TTS Python not executable: $tts_python"; fi
+    if [[ -d "$tts_model_dir" ]]; then pass "Kokoro model directory: $tts_model_dir"; else fail "Kokoro model directory missing: $tts_model_dir"; fi
+    check_file "Kokoro voice file" "$tts_voice_file"
   else
-    fail "TTS data missing: $tts_data_path"
-  fi
+      stt_encoder="$(yaml_value stt encoder)"
+      stt_decoder="$(yaml_value stt decoder)"
+      stt_tokens="$(yaml_value stt tokens)"
+      llm_model="$(yaml_value llm model)"
+      tts_model="$(yaml_value tts model)"
+      tts_tokens="$(yaml_value tts tokens)"
+      tts_data="$(yaml_value tts data_dir)"
+      llm_host="$(yaml_value llm host)"
 
-  if [[ "$llm_host" == 127.0.0.1 || "$llm_host" == localhost ]]; then
-    pass "LLM binds to loopback: $llm_host"
-  else
-    fail "LLM host must be loopback for beta: ${llm_host:-unset}"
-  fi
+      stt_encoder_path="$(resolve_config_path "$stt_encoder")"
+      check_file "STT encoder" "$stt_encoder_path"
+      check_file "STT decoder" "$(resolve_config_path "$stt_decoder")"
+      check_file "STT tokens" "$(resolve_config_path "$stt_tokens")"
+      check_file "Silero VAD model" "$(infer_vad_model_path "$stt_encoder_path")"
+      check_file "LLM model" "$(resolve_config_path "$llm_model")"
+      check_file "TTS model" "$(resolve_config_path "$tts_model")"
+      check_file "TTS tokens" "$(resolve_config_path "$tts_tokens")"
+      tts_data_path="$(resolve_config_path "$tts_data")"
+      if [[ -d "$tts_data_path" ]]; then
+        pass "TTS data: $tts_data_path"
+      else
+        fail "TTS data missing: $tts_data_path"
+      fi
 
-  if awk '/^[[:space:]]+filesystem:/{f=1;next} f && /^[[:space:]]{4}enabled:[[:space:]]+false/{ok=1;exit} f && /^[[:space:]]{2}[^[:space:]]/{exit} END{exit !ok}' "$CONFIG"; then
-    pass "filesystem tools disabled"
-  else
-    fail "filesystem tools must remain disabled for beta"
+      if [[ "$llm_host" == 127.0.0.1 || "$llm_host" == localhost ]]; then
+        pass "LLM binds to loopback: $llm_host"
+      else
+        fail "LLM host must be loopback for beta: ${llm_host:-unset}"
+      fi
+
+      if awk '/^[[:space:]]+filesystem:/{f=1;next} f && /^[[:space:]]{4}enabled:[[:space:]]+false/{ok=1;exit} f && /^[[:space:]]{2}[^[:space:]]/{exit} END{exit !ok}' "$CONFIG"; then
+        pass "filesystem tools disabled"
+      else
+        fail "filesystem tools must remain disabled for beta"
+      fi
   fi
 fi
 

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -30,11 +31,46 @@ func TestValidateVoiceGatewayDoesNotRequireLocalAgentStack(t *testing.T) {
 	}
 }
 
-func TestValidateVoiceGatewayRequiresZeroClawExecutable(t *testing.T) {
+func TestValidateVoiceGatewayRequiresACPExecutableAndWorkspace(t *testing.T) {
 	cfg := operationalConfig(t)
-	cfg.Agent = AgentConfig{Mode: "voice_gateway", ZeroClaw: ZeroClawConfig{Binary: filepath.Join(t.TempDir(), "missing")}}
-	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "agent.zeroclaw.binary") {
-		t.Fatalf("Validate() error = %v, want agent.zeroclaw.binary error", err)
+	root := t.TempDir()
+	cfg.Agent = AgentConfig{Mode: "voice_gateway", ACP: ACPConfig{
+		Binary: filepath.Join(root, "missing"), Args: []string{"acp"}, CWD: root,
+	}}
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "agent.acp.binary") {
+		t.Fatalf("Validate() error = %v, want agent.acp.binary error", err)
+	}
+
+	binary := filepath.Join(root, "agent-acp")
+	if err := os.WriteFile(binary, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Agent.ACP.Binary = binary
+	cfg.Agent.ACP.CWD = ""
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "agent.acp.cwd is required") {
+		t.Fatalf("Validate() error = %v, want required cwd", err)
+	}
+	cfg.Agent.ACP.CWD = "relative"
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "absolute") {
+		t.Fatalf("Validate() error = %v, want absolute cwd", err)
+	}
+	cfg.Agent.ACP.CWD = root
+	cfg.Agent.ACP.Args = []string{"acp", " "}
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "agent.acp.args[1]") {
+		t.Fatalf("Validate() error = %v, want blank arg error", err)
+	}
+}
+
+func TestLoadRejectsLegacyZeroClawSchema(t *testing.T) {
+	path := writeTestConfig(t, `
+audio: {}
+agent:
+  mode: voice_gateway
+  zeroclaw:
+    binary: /usr/local/bin/zeroclaw
+`)
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "field zeroclaw not found") {
+		t.Fatalf("Load() error = %v, want strict legacy-schema rejection", err)
 	}
 }
 

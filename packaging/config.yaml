@@ -8,9 +8,9 @@ audio:
 
 agent:
   mode: "voice_gateway"
-  zeroclaw:
+  acp:
     binary: "/usr/local/bin/zeroclaw"
-    agent_alias: "xarlatan"
+    args: ["acp"]
     cwd: "/var/lib/xarlatan/workspace"
 
 voice:

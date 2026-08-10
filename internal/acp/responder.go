@@ -1,4 +1,4 @@
-package zeroclaw
+package acp
 
 import (
 	"context"
@@ -15,15 +15,15 @@ type promptTransport interface {
 	RespondStream(context.Context, string, func(string) error) (Result, error)
 }
 
-// VoiceResponder adapts the ZeroClaw ACP session to Xarlatan's existing
-// Coordinator responder boundary without adding local memory or agent logic.
+// VoiceResponder adapts an ACP session to Xarlatan's Coordinator responder
+// boundary without adding local agent, memory, tool or LLM ownership.
 type VoiceResponder struct {
 	transport promptTransport
 }
 
 func NewVoiceResponder(transport promptTransport) (*VoiceResponder, error) {
 	if transport == nil {
-		return nil, errors.New("zeroclaw voice responder transport is nil")
+		return nil, errors.New("ACP voice responder transport is nil")
 	}
 	return &VoiceResponder{transport: transport}, nil
 }
@@ -38,7 +38,7 @@ func (r *VoiceResponder) RespondStream(ctx context.Context, text string, onDelta
 		var observed atomic.Bool
 		callback = func(delta string) error {
 			if observed.CompareAndSwap(false, true) {
-				slog.Info("zeroclaw response stream started")
+				slog.Info("ACP response stream started")
 			}
 			return onDelta(delta)
 		}
@@ -48,7 +48,7 @@ func (r *VoiceResponder) RespondStream(ctx context.Context, text string, onDelta
 
 func (r *VoiceResponder) respond(ctx context.Context, text string, onDelta func(string) error) (conversation.Result, error) {
 	if r == nil || r.transport == nil {
-		return conversation.Result{}, errors.New("zeroclaw voice responder is not initialized")
+		return conversation.Result{}, errors.New("ACP voice responder is not initialized")
 	}
 	result, err := r.transport.RespondStream(ctx, text, onDelta)
 	if err != nil {

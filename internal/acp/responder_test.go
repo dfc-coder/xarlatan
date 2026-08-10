@@ -1,4 +1,4 @@
-package zeroclaw
+package acp
 
 import (
 	"context"
@@ -31,24 +31,9 @@ func (s *promptClientStub) RespondStream(ctx context.Context, prompt string, onD
 	return s.result, nil
 }
 
-func TestVoiceResponderBufferedUsesZeroClawFinalReply(t *testing.T) {
-	transport := &promptClientStub{result: Result{Reply: " respuesta final ", StopReason: "end_turn"}}
-	responder, err := NewVoiceResponder(transport)
-	if err != nil {
-		t.Fatalf("NewVoiceResponder() error = %v", err)
-	}
-	result, err := responder.Respond(context.Background(), "hola")
-	if err != nil {
-		t.Fatalf("Respond() error = %v", err)
-	}
-	if transport.prompt != "hola" || result.Reply != "respuesta final" {
-		t.Fatalf("prompt/reply = %q/%q", transport.prompt, result.Reply)
-	}
-}
-
-func TestVoiceResponderStreamsOnlyTransportDeltas(t *testing.T) {
+func TestVoiceResponderBufferedAndStreaming(t *testing.T) {
 	transport := &promptClientStub{
-		result: Result{Reply: "Hola mundo.", StopReason: "end_turn"},
+		result: Result{Reply: " Hola mundo. ", StopReason: "end_turn"},
 		deltas: []string{"Hola", " mundo."},
 	}
 	responder, err := NewVoiceResponder(transport)
@@ -63,27 +48,33 @@ func TestVoiceResponderStreamsOnlyTransportDeltas(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RespondStream() error = %v", err)
 	}
+	if transport.prompt != "saluda" || result.Reply != "Hola mundo." {
+		t.Fatalf("prompt/reply = %q/%q", transport.prompt, result.Reply)
+	}
 	if !reflect.DeepEqual(got, transport.deltas) {
 		t.Fatalf("deltas = %q, want %q", got, transport.deltas)
 	}
-	if result.Reply != "Hola mundo." {
-		t.Fatalf("Reply = %q", result.Reply)
+
+	buffered, err := responder.Respond(context.Background(), "buffered")
+	if err != nil || buffered.Reply != "Hola mundo." {
+		t.Fatalf("Respond() = %+v, %v", buffered, err)
 	}
 }
 
-func TestVoiceResponderPropagatesCancellation(t *testing.T) {
+func TestVoiceResponderErrors(t *testing.T) {
+	if _, err := NewVoiceResponder(nil); err == nil {
+		t.Fatal("NewVoiceResponder(nil) error = nil")
+	}
 	transport := &promptClientStub{err: context.Canceled}
 	responder, err := NewVoiceResponder(transport)
 	if err != nil {
-		t.Fatalf("NewVoiceResponder() error = %v", err)
+		t.Fatal(err)
 	}
 	if _, err := responder.Respond(context.Background(), "hola"); !errors.Is(err, context.Canceled) {
-		t.Fatalf("Respond() error = %v, want context.Canceled", err)
+		t.Fatalf("Respond() error = %v", err)
 	}
-}
-
-func TestVoiceResponderRejectsNilTransport(t *testing.T) {
-	if _, err := NewVoiceResponder(nil); err == nil {
-		t.Fatal("NewVoiceResponder(nil) error = nil")
+	var nilResponder *VoiceResponder
+	if _, err := nilResponder.Respond(context.Background(), "hola"); err == nil {
+		t.Fatal("nil responder error = nil")
 	}
 }

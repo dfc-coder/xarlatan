@@ -24,7 +24,7 @@ bash -n \
   "$ROOT/scripts/rollback.sh"
 
 assert_contains "$ROOT/Makefile" 'all: deps build'
-if grep -Fq 'VERSION ?= v0.6.0-beta.1' "$ROOT/Makefile"; then
+if grep -Eq 'VERSION \?= v0\.(6\.0-beta\.1|7\.0)' "$ROOT/Makefile"; then
   assert_contains "$ROOT/Makefile" 'install: build'
 else
   assert_contains "$ROOT/Makefile" 'install: all'
