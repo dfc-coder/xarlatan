@@ -105,7 +105,7 @@ go test -count=1 -coverprofile=/tmp/acp.out ./internal/acp
 go tool cover -func=/tmp/acp.out
 ```
 
-Observed generic ACP statement coverage:
+Observed local generic ACP statement coverage:
 
 ```text
 80.8%
@@ -177,22 +177,53 @@ credentials.
 
 ## Final automated GREEN
 
-To be filled from the exact release head before merge:
+Validated implementation head:
 
 ```text
-commit: PENDING
-baseline inventory: PENDING
-CI: PENDING
-format: PENDING
-vet: PENDING
-full tests: PENDING
-ACP coverage: PENDING
-repeat x20: PENDING
-race: PENDING
-build/version: PENDING
-release contracts: PENDING
-systemd verify/security: PENDING
+ef6bc8b9ca1c5b2cd14ba05d3830bd87fe767e36
 ```
+
+GitHub Actions evidence on that exact implementation head:
+
+```text
+baseline inventory: run #404 — PASS
+CI:                 run #886 — PASS
+make format-check:                  PASS
+go vet ./...:                       PASS
+go test -count=1 ./...:             PASS
+generic ACP statement coverage:    81.1% (floor 80%)
+focused repeat x20:                 PASS
+focused race suite:                 PASS
+Python voice-worker compile/syntax: PASS
+make clean build:                   PASS
+embedded version:                   assistant v0.7.0
+bin/llama-server from default build: absent — PASS
+WI-08 installation contracts:      PASS
+WI-09 contracts:                   PASS
+WI-11D release contract:           PASS
+v0.7 release contract:             PASS
+systemd verify:                    PASS
+systemd security:                  4.7 OK
+```
+
+The focused remote coverage values were:
+
+```text
+memory       86.4%
+application  82.2%
+conversation 85.9%
+audio        60.6%
+vad          90.7%
+sherpa-vad   77.0%
+wake         93.3%
+barge        83.9%
+inference    71.1%
+acp          81.1%
+```
+
+The commit that records this section changes release evidence only. Its own
+baseline inventory and CI runs are the final merge gate; no runtime claim is
+advanced solely by this documentation commit.
 
 ## Physical acceptance
 
