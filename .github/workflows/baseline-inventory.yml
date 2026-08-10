@@ -90,12 +90,13 @@ jobs:
           test -f internal/inference/worker.go
           test -f internal/inference/worker_test.go
           test -f internal/inference/worker_script_test.go
-          test -f internal/zeroclaw/acp.go
-          test -f internal/zeroclaw/acp_test.go
-          test -f internal/zeroclaw/responder.go
-          test -f internal/zeroclaw/responder_test.go
-          test -f internal/zeroclaw/runtime.go
-          test -f internal/zeroclaw/runtime_test.go
+          test -f internal/acp/client.go
+          test -f internal/acp/client_test.go
+          test -f internal/acp/responder.go
+          test -f internal/acp/responder_test.go
+          test -f internal/acp/runtime.go
+          test -f internal/acp/runtime_test.go
+          ! test -e internal/zeroclaw
           test -f cmd/assistant/main_test.go
           test -f cmd/assistant/wi11a_test.go
           test -f cmd/assistant/capture_gate_observer.go
@@ -112,6 +113,7 @@ jobs:
           test -f scripts/tests/wi09_contract_test.sh
           test -f scripts/tests/wi11d_contract_test.sh
           test -f scripts/tests/v06_contract_test.sh
+          test -f scripts/tests/v07_contract_test.sh
           test -f scripts/install.sh
           test -f scripts/uninstall.sh
           test -f scripts/rollback.sh
@@ -119,6 +121,7 @@ jobs:
           test -f scripts/beta_acceptance.sh
           test -f scripts/beta_v05_acceptance.sh
           test -f scripts/beta_v06_acceptance.sh
+          test -f scripts/beta_v07_acceptance.sh
           test -f scripts/setup_voice_runtime.sh
           test -f scripts/openvino_voice_worker.py
           test -f scripts/package_release.sh
@@ -132,6 +135,7 @@ jobs:
           ! test -e .github/workflows/wi11c2-finalize.yml
           ! test -e .github/workflows/wi11d-release-finalize.yml
           ! test -e .github/workflows/wi11d-validate.yml
+          ! test -e .github/workflows/dev-source-snapshot.yml
           ! grep -R --include='*.go' -n "github.com/local/assistant" cmd internal
           ! grep -n "github.com/local/assistant" go.mod go.sum
           test -f LICENSE
@@ -139,6 +143,7 @@ jobs:
           test -f docs/BETA_RUNBOOK.md
           test -f docs/BETA_V05_RUNBOOK.md
           test -f docs/BETA_V06_RUNBOOK.md
+          test -f docs/BETA_V07_RUNBOOK.md
           test -f docs/baseline/REPOSITORY_LAYOUT.md
           test -f docs/baseline/VALIDATION.md
           test -f docs/baseline/KNOWN_ISSUES.md
@@ -165,4 +170,6 @@ jobs:
           test -f docs/refactor/WI-11D_SPEC.md
           test -f docs/refactor/WI-11D_RELEASE_NOTES.md
           test -f docs/refactor/V06_VOICE_GATEWAY_SPEC.md
+          test -f docs/refactor/V07_AGENT_AGNOSTIC_ACP_SPEC.md
+          test -f docs/refactor/V07_RELEASE_EVIDENCE.md
           test -z "$(gofmt -l cmd internal)"

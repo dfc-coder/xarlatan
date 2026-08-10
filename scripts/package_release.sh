@@ -34,7 +34,7 @@ install -m644 "$ROOT/packaging/config.yaml" "$STAGE/$NAME/packaging/config.yaml"
 install -m644 "$ROOT/packaging/systemd/xarlatan.service" "$STAGE/$NAME/packaging/systemd/xarlatan.service"
 for script in \
   install.sh uninstall.sh rollback.sh download_models.sh preflight.sh \
-  beta_acceptance.sh beta_v05_acceptance.sh beta_v06_acceptance.sh \
+  beta_acceptance.sh beta_v05_acceptance.sh beta_v06_acceptance.sh beta_v07_acceptance.sh \
   collect_runtime_libs.sh setup_voice_runtime.sh openvino_voice_worker.py; do
   install -m755 "$ROOT/scripts/$script" "$STAGE/$NAME/scripts/$script"
 done
@@ -42,6 +42,9 @@ install -m644 "$ROOT/README.md" "$STAGE/$NAME/README.md"
 install -m644 "$ROOT/docs/BETA_RUNBOOK.md" "$STAGE/$NAME/BETA_RUNBOOK.md"
 if [[ -f "$ROOT/docs/BETA_V06_RUNBOOK.md" ]]; then
   install -m644 "$ROOT/docs/BETA_V06_RUNBOOK.md" "$STAGE/$NAME/BETA_V06_RUNBOOK.md"
+fi
+if [[ -f "$ROOT/docs/BETA_V07_RUNBOOK.md" ]]; then
+  install -m644 "$ROOT/docs/BETA_V07_RUNBOOK.md" "$STAGE/$NAME/BETA_V07_RUNBOOK.md"
 fi
 install -m644 "$ROOT/CHANGELOG.md" "$STAGE/$NAME/CHANGELOG.md"
 install -m644 "$ROOT/LICENSE" "$STAGE/$NAME/LICENSE"

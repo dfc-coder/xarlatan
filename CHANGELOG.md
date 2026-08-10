@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.7.0
+
+- Xarlatan is now an agent-agnostic voice gateway: the conversational LLM, memory, tools and skills remain outside the voice engine.
+- Replaced the ZeroClaw-specific core integration with a generic ACP v1 subprocess adapter under `internal/acp`.
+- ZeroClaw and NullClaw are configuration-only alternatives through `agent.acp.binary`, `args` and an absolute `cwd`.
+- ACP prompts use portable text content blocks; streamed `agent_message_chunk` text is reconstructed when a runtime omits terminal response content.
+- Thought, plan, tool input/output and permission payloads remain excluded from TTS; permission requests are reject/cancel by default.
+- Barge-in keeps local playback/TTS cancellation authoritative, sends best-effort `session/cancel` and discards late deltas.
+- Voice runtime setup no longer installs, copies, configures or requires an agent runtime.
+- Added generic ACP conformance coverage for ZeroClaw-like and NullClaw-like protocol shapes, arbitrary subprocess commands, cancellation and child reaping.
+- README and release runbook reposition Xarlatan as a local-first, low-latency voice gateway suitable for agent runtimes rather than as a bundled assistant.
+- Default build/version advances to `v0.7.0`; `make build` remains free of `llama-server`, with `legacy_native` retained as rollback-only state.
+
 ## v0.6.0-beta.1
 
 - Xarlatan becomes the local voice gateway while ZeroClaw owns agent, memory, tools, skills and sessions.
@@ -79,7 +92,7 @@ Primera beta candidata después del refactor operativo WI-00..WI-09.
 
 - el binario instalado se llama `/usr/local/bin/xarlatan`;
 - la configuración instalada se encuentra en `/etc/xarlatan/config.yaml`;
-- los modelos instalados se encuentran bajo `/var/lib/xarlatan/models`;
+- los modelos instalados se encuentran bajo `/var/lib/xarlatan`;
 - el servicio se administra con `systemctl --user`, no con `sudo systemctl`;
 - la unidad se encuentra en `/etc/systemd/user/xarlatan.service`;
 - `--reset` fue eliminado porque la memoria sigue siendo volátil;

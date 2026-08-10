@@ -125,27 +125,9 @@ print("Kokoro providers:", ", ".join(providers))
 print("Kokoro OpenVINO EP visible:", "OpenVINOExecutionProvider" in providers)
 PY
 
-if command -v zeroclaw >/dev/null 2>&1; then
-  ZC_BIN="$(command -v zeroclaw)"
-elif sudo -u "${DESKTOP_USER}" env HOME="${DESKTOP_HOME}" bash -lc 'command -v zeroclaw' >/dev/null 2>&1; then
-  ZC_BIN="$(sudo -u "${DESKTOP_USER}" env HOME="${DESKTOP_HOME}" bash -lc 'command -v zeroclaw')"
-else
-  echo "ZeroClaw is not installed. Install it and run 'zeroclaw quickstart' as ${DESKTOP_USER}." >&2
-  exit 1
-fi
-install -m 0755 "${ZC_BIN}" /usr/local/bin/zeroclaw
-
-ZEROCLAW_CONFIG="${DESKTOP_HOME}/.zeroclaw/config.toml"
-if ! sudo -u "${DESKTOP_USER}" test -r "${ZEROCLAW_CONFIG}"; then
-  echo "ZeroClaw config missing: ${ZEROCLAW_CONFIG}" >&2
-  echo "Run 'zeroclaw quickstart' as ${DESKTOP_USER} before acceptance." >&2
-  exit 1
-fi
-
 printf 'Voice runtime ready:\n'
 printf '  STT Python: %s\n' "${STT_VENV}/bin/python"
 printf '  TTS Python: %s\n' "${TTS_VENV}/bin/python"
 printf '  Whisper:    %s\n' "${STT_DIR}"
 printf '  Kokoro:     %s\n' "${KOKORO_DIR}"
 printf '  Worker:     %s\n' "${WORKER_DST}"
-printf '  ZeroClaw:   /usr/local/bin/zeroclaw\n'

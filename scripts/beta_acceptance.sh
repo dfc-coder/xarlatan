@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Release-specific physical acceptance remains isolated so historical beta
+# contracts stay reproducible.
+if [[ "${EXPECTED_VERSION:-}" == "v0.7.0" ]]; then
+  exec bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/beta_v07_acceptance.sh" "$@"
+fi
+
 # Keep the historical WI-09 acceptance intact. The continuous-voice beta uses
 # its dedicated protocol only when v0.5 is explicitly requested.
 if [[ "${EXPECTED_VERSION:-}" == "v0.5.0-beta.1" ]]; then

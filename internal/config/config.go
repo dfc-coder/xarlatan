@@ -35,15 +35,15 @@ type Config struct {
 
 // AgentConfig selects which side owns the conversational agent plane.
 type AgentConfig struct {
-	Mode     string         `yaml:"mode"`
-	ZeroClaw ZeroClawConfig `yaml:"zeroclaw"`
+	Mode string    `yaml:"mode"`
+	ACP  ACPConfig `yaml:"acp"`
 }
 
-// ZeroClawConfig configures the ACP subprocess used in voice_gateway mode.
-type ZeroClawConfig struct {
-	Binary     string `yaml:"binary"`
-	AgentAlias string `yaml:"agent_alias"`
-	CWD        string `yaml:"cwd"`
+// ACPConfig configures the external ACP v1 subprocess used in voice_gateway mode.
+type ACPConfig struct {
+	Binary string   `yaml:"binary"`
+	Args   []string `yaml:"args"`
+	CWD    string   `yaml:"cwd"`
 }
 
 // ToolsConfig enables and configures tool use.
@@ -184,9 +184,6 @@ func Load(path string) (*Config, error) {
 func (c *Config) applyDefaults(document *yaml.Node) {
 	if c.Agent.Mode == "" {
 		c.Agent.Mode = "legacy_native"
-	}
-	if c.Agent.ZeroClaw.AgentAlias == "" {
-		c.Agent.ZeroClaw.AgentAlias = "xarlatan"
 	}
 	c.applyVoiceDefaults()
 	if c.Tools.WebSearch.Provider == "" {
@@ -376,16 +373,23 @@ func validateAgent(cfg AgentConfig) (string, error) {
 	case "legacy_native":
 		return mode, nil
 	case "voice_gateway":
-		if err := validateExecutable("agent.zeroclaw.binary", cfg.ZeroClaw.Binary); err != nil {
+		if err := validateExecutable("agent.acp.binary", cfg.ACP.Binary); err != nil {
 			return "", err
 		}
-		if cwd := strings.TrimSpace(cfg.ZeroClaw.CWD); cwd != "" {
-			if !filepath.IsAbs(cwd) {
-				return "", fmt.Errorf("agent.zeroclaw.cwd must be an absolute path")
+		for i, arg := range cfg.ACP.Args {
+			if strings.TrimSpace(arg) == "" {
+				return "", fmt.Errorf("agent.acp.args[%d] must not be blank", i)
 			}
-			if err := validateDirectory("agent.zeroclaw.cwd", cwd); err != nil {
-				return "", err
-			}
+		}
+		cwd := strings.TrimSpace(cfg.ACP.CWD)
+		if cwd == "" {
+			return "", fmt.Errorf("agent.acp.cwd is required")
+		}
+		if !filepath.IsAbs(cwd) {
+			return "", fmt.Errorf("agent.acp.cwd must be an absolute path")
+		}
+		if err := validateDirectory("agent.acp.cwd", cwd); err != nil {
+			return "", err
 		}
 		return mode, nil
 	default:

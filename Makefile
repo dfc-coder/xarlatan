@@ -11,7 +11,7 @@ LLAMA_REF := b8660
 NPROC := $(shell nproc)
 CMAKE_COMMON := -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF
 GOFLAGS ?= -mod=mod
-VERSION ?= v0.6.0-beta.1
+VERSION ?= v0.7.0
 BUILD_VERSION := $(patsubst v%,%,$(VERSION))
 
 ifdef GGML_CUDA
@@ -20,7 +20,7 @@ endif
 
 .PHONY: all build runtime-libs deps llama models install uninstall rollback release-candidate preflight beta-acceptance fmt format-check dev-setup clean clean-all clean-llama reset-llama help FORCE
 
-all: deps build ## Build legacy llama-server plus the v0.6 voice gateway
+all: deps build ## Build legacy llama-server plus the v0.7 voice gateway
 
 deps: llama ## Build legacy third-party agent dependency
 
@@ -54,7 +54,7 @@ dev-setup: ## Install repository-local Git hooks for this checkout
 	@chmod +x .githooks/pre-commit
 	@echo "✓ Git hooks enabled from .githooks"
 
-build: $(BIN_DIR)/assistant $(BIN_DIR)/calibrate runtime-libs ## Build v0.6 Go commands and native VAD runtime
+build: $(BIN_DIR)/assistant $(BIN_DIR)/calibrate runtime-libs ## Build v0.7 Go commands and native VAD runtime
 
 $(BIN_DIR)/assistant: FORCE
 	@mkdir -p $(BIN_DIR)
@@ -81,7 +81,7 @@ FORCE:
 models: ## Download and validate default runtime models
 	@bash scripts/download_models.sh
 
-install: build ## Install the v0.6 gateway; llama-server is optional rollback state
+install: build ## Install the v0.7 gateway; llama-server is optional rollback state
 	@bash scripts/install.sh
 
 uninstall: ## Remove binaries, libraries and service, preserving config/models
@@ -90,14 +90,16 @@ uninstall: ## Remove binaries, libraries and service, preserving config/models
 rollback: ## Restore the state before the last install
 	@bash scripts/rollback.sh
 
-release-candidate: build ## Build deterministic v0.6 beta archive and SHA-256
+release-candidate: build ## Build deterministic v0.7 archive and SHA-256
 	@bash scripts/package_release.sh "$(VERSION)"
 
 preflight: build ## Validate local beta prerequisites
 	@EXPECTED_VERSION="v$(BUILD_VERSION)" XARLATAN_BIN="$(BIN_DIR)/assistant" bash scripts/preflight.sh config.yaml
 
 beta-acceptance: build ## Run the version-selected physical beta acceptance
-	@if [[ "v$(BUILD_VERSION)" == "v0.6.0-beta.1" ]]; then \
+	@if [[ "v$(BUILD_VERSION)" == "v0.7.0" ]]; then \
+		EXPECTED_VERSION="v$(BUILD_VERSION)" bash scripts/beta_v07_acceptance.sh /etc/xarlatan/config.yaml; \
+	elif [[ "v$(BUILD_VERSION)" == "v0.6.0-beta.1" ]]; then \
 		EXPECTED_VERSION="v$(BUILD_VERSION)" bash scripts/beta_v06_acceptance.sh /etc/xarlatan/config.yaml; \
 	else \
 		EXPECTED_VERSION="v$(BUILD_VERSION)" XARLATAN_BIN="$(BIN_DIR)/assistant" bash scripts/beta_acceptance.sh config.yaml; \

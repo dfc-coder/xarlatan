@@ -1,152 +1,259 @@
-# Xarlatan — asistente de voz local
+# Xarlatan — Local-first low-latency voice gateway for AI agents
 
-Xarlatan es un asistente de voz local para Linux x86_64 escrito en Go. Usa ALSA para audio, sherpa-onnx para STT/TTS y `llama-server` para inferencia LLM.
+**Bring your agent. Xarlatan gives it ears and a voice.**
+
+Xarlatan is a Linux voice runtime written in Go. It turns a text-oriented AI
+agent into a realtime voice experience without putting an LLM, agent memory or
+tools inside the voice engine.
 
 ```text
-micrófono → STT → conversation.Session → AgentRuntime → TTS → altavoz
+microphone
+   |
+   v
+Silero VAD -> wake / endpointing -> streaming STT
+                                      |
+                                      v
+                                  ACP v1
+                                      |
+                         +------------+------------+
+                         |                         |
+                    ZeroClaw                  NullClaw
+                         |                         |
+                         +------------+------------+
+                                      |
+                              user-facing text
+                                      |
+                                      v
+                           sentence buffer -> Kokoro
+                                                |
+                                                v
+                                             speaker
 ```
 
-## Requisitos
+Xarlatan owns **audio, turn-taking and latency**. The external agent owns
+**LLM selection, memory, tools, skills, permissions and agent behavior**.
 
-- Go 1.21 o superior.
-- `build-essential`, `cmake`, `git` y `curl`.
-- `alsa-utils` y `libasound2-dev`.
-- Linux con systemd para la instalación como servicio.
+## Why Xarlatan
 
-En Debian/Ubuntu:
+Most agent runtimes already know how to receive text and produce text. Requiring
+every agent to implement microphone capture, VAD, STT, neural TTS, playback and
+barge-in duplicates a difficult realtime pipeline.
 
-```bash
-sudo apt install -y build-essential cmake git curl alsa-utils libasound2-dev
+Xarlatan provides that pipeline once:
+
+- persistent microphone capture;
+- Silero VAD, wake gating and endpointing;
+- persistent Whisper/OpenVINO STT with GPU preference and CPU fallback;
+- partial preview plus authoritative final transcripts;
+- ACP v1 over stdio for an external agent runtime;
+- streamed `agent_message_chunk` text only — thoughts and raw tool data are
+  never voice-eligible;
+- sentence-level Kokoro TTS and persistent playback;
+- wake-qualified barge-in, cancellation and stale-turn rejection;
+- monotonic latency instrumentation from end-of-speech to first audible PCM.
+
+In `voice_gateway` mode Xarlatan has **no conversational LLM**.
+
+## Agent interoperability
+
+v0.7.0 uses a generic ACP v1 subprocess adapter. The agent is selected only by
+configuration.
+
+### ZeroClaw
+
+```yaml
+agent:
+  mode: "voice_gateway"
+  acp:
+    binary: "/usr/local/bin/zeroclaw"
+    args: ["acp"]
+    cwd: "/var/lib/xarlatan/workspace"
 ```
+
+### NullClaw
+
+```yaml
+agent:
+  mode: "voice_gateway"
+  acp:
+    binary: "/usr/local/bin/nullclaw"
+    args: ["acp"]
+    cwd: "/var/lib/xarlatan/workspace"
+```
+
+The ACP adapter uses portable text content blocks, requires an absolute session
+workspace and supports both response shapes used by the initial runtimes:
+streamed chunks plus optional terminal content, or streamed chunks with only a
+terminal stop reason.
+
+Permissions are never auto-approved. Confirmed interruption stops local audio
+immediately and sends best-effort ACP cancellation; late deltas from the old
+turn are discarded even if the agent runtime cannot cancel its compute
+immediately.
 
 ## Build
+
+Requirements:
+
+- Linux x86_64;
+- Go 1.21+;
+- ALSA development/runtime packages;
+- `bash`, `curl`, `python3`, `espeak-ng` for voice setup.
+
+On Debian/Ubuntu:
+
+```bash
+sudo apt install -y build-essential git curl alsa-utils libasound2-dev \
+  python3 python3-venv espeak-ng
+```
+
+Build the v0.7 voice gateway:
 
 ```bash
 git clone https://github.com/dfc-coder/xarlatan.git
 cd xarlatan
-make all
-```
-
-`make all` construye:
-
-- `bin/assistant`;
-- `bin/calibrate`;
-- `bin/llama-server`.
-
-La versión puede fijarse de forma reproducible:
-
-```bash
-make clean build VERSION=0.4.0-beta.1
+make dev-setup
+make build
 ./bin/assistant -version
 ```
 
-## Modelos
+Expected:
 
-```bash
-make models
+```text
+assistant v0.7.0
 ```
 
-Los modelos locales quedan en `models/`. La instalación copia los modelos presentes a `/var/lib/xarlatan/models`.
+`make build` does **not** build a local LLM server. `make all` remains only for
+the historical `legacy_native` rollback path and also builds `llama-server`.
 
-## Ejecución en foreground
+## Install
 
-```bash
-./bin/assistant -config config.yaml -no-tools
-```
-
-Para calibrar el umbral del micrófono:
+Install Xarlatan itself:
 
 ```bash
-./bin/calibrate
-```
-
-## Instalación del sistema
-
-Construye como usuario normal y luego instala como root:
-
-```bash
-make all
 sudo make install
 ```
 
-La instalación crea:
-
-```text
-/usr/local/bin/xarlatan
-/usr/local/bin/xarlatan-calibrate
-/usr/local/bin/llama-server
-/etc/xarlatan/config.yaml
-/etc/systemd/system/xarlatan.service
-/var/lib/xarlatan/models
-/var/backups/xarlatan
-```
-
-El servicio:
-
-- usa el usuario y grupo dedicados `xarlatan`;
-- no se habilita ni inicia automáticamente;
-- arranca con `--no-tools`;
-- solo puede escribir en `/var/lib/xarlatan`;
-- registra salida en journald.
-
-Antes de habilitarlo, revisa `/etc/xarlatan/config.yaml`, confirma que los modelos existen y configura un dispositivo ALSA accesible desde un servicio del sistema. En escritorios con PipeWire, `default` puede depender de la sesión del usuario; suele ser necesario usar un dispositivo ALSA explícito como `plughw:CARD=...,DEV=0`.
+Prepare the local voice inference runtime:
 
 ```bash
-sudo systemctl enable --now xarlatan
-systemctl status xarlatan
-journalctl -u xarlatan -f
+sudo bash ./scripts/setup_voice_runtime.sh
 ```
 
-## Rollback y desinstalación
+That script installs/configures **voice inference only**. It does not install or
+configure ZeroClaw, NullClaw or another agent runtime.
 
-La última instalación conserva un snapshot root-only en `/var/backups/xarlatan`.
+Install and configure the ACP agent separately, then update:
+
+```text
+/etc/xarlatan/config.yaml
+```
+
+The default installed workspace is:
+
+```text
+/var/lib/xarlatan/workspace
+```
+
+Run in foreground:
+
+```bash
+/usr/local/bin/xarlatan --config /etc/xarlatan/config.yaml --no-tools
+```
+
+Or as the installed systemd user service:
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now xarlatan
+journalctl --user -u xarlatan -f
+```
+
+## Realtime lifecycle
+
+Every active voice turn has its own cancellation context/TurnID.
+
+```text
+speech end
+  -> final STT
+  -> ACP session/prompt
+  -> first user-facing text delta
+  -> sentence boundary
+  -> Kokoro first PCM
+  -> playback
+```
+
+On confirmed barge-in:
+
+```text
+stop playback
+  -> cancel/drop TTS
+  -> cancel local turn
+  -> send session/cancel best-effort
+  -> reject stale ACP deltas
+  -> recover for the next turn
+```
+
+## Latency instrumentation
+
+Xarlatan records bounded metadata only:
+
+```text
+T0  end of speech
+T1  final STT
+T2  first ACP user-facing delta
+T3  first synthesized PCM
+T4  playback start
+```
+
+Derived measurements include STT latency, agent TTFT, TTS first-chunk latency,
+playback latency, EOS-to-first-audio and interruption latency. Metrics do not
+store transcript text, raw tool payloads, credentials or PCM.
+
+## Validation
+
+```bash
+make format-check
+go vet ./...
+go test -count=1 ./...
+go test -count=20 ./internal/acp ./internal/inference ./internal/application
+go test -race -count=1 ./internal/acp ./internal/inference ./internal/application
+bash scripts/tests/v07_contract_test.sh
+```
+
+Physical acceptance on the target Linux machine:
+
+```bash
+EXPECTED_VERSION=v0.7.0 \
+bash ./scripts/beta_v07_acceptance.sh /etc/xarlatan/config.yaml
+```
+
+The release is physically accepted only when the report ends exactly:
+
+```text
+Final result: PASS
+```
+
+## Architecture notes
+
+- **Events are the control plane; streams are the data plane.** High-frequency
+  PCM does not travel through a generic event bus.
+- Coordinator owns lifecycle; workers own inference work.
+- STT/TTS workers are persistent to avoid model startup per turn.
+- ACP is a wire boundary, not an Xarlatan-owned agent abstraction.
+- `legacy_native` remains available as a rollback path during the migration,
+  but it is not the v0.7 product architecture.
+
+The v0.7 design and release evidence live under `docs/refactor/`.
+
+## Rollback
+
+The last installation snapshot is kept under `/var/backups/xarlatan`:
 
 ```bash
 sudo make rollback
 ```
 
-Desinstalar preservando configuración y modelos:
-
-```bash
-sudo make uninstall
-```
-
-Eliminar también configuración, modelos, backup y usuario de servicio:
-
-```bash
-sudo PURGE=1 make uninstall
-```
-
-## Configuración segura
-
-La configuración instalada usa paths absolutos. El filesystem está deshabilitado y el servicio deshabilita todas las tools por defecto. Para habilitar tools hay que modificar explícitamente la unidad y revisar `ToolPolicy` y el sandbox.
-
-## Flags principales
-
-```text
--config string
--log string
--no-tools
--max-tool-rounds int
--max-history-bytes int
--max-summary-bytes int
--version
-```
-
-`--reset` fue eliminado mientras la memoria sea exclusivamente volátil; no se expone una operación sin efecto observable.
-
-## Validación
-
-```bash
-gofmt -l .
-go vet ./...
-go test -count=1 ./...
-go test -race -count=1 ./internal/orchestrator ./internal/tools ./internal/llm ./internal/memory ./internal/audio ./internal/conversation ./internal/application
-shellcheck scripts/install.sh scripts/uninstall.sh scripts/rollback.sh scripts/tests/wi08_contract_test.sh
-bash scripts/tests/wi08_contract_test.sh
-sudo systemd-analyze verify packaging/systemd/xarlatan.service
-```
-
-## Licencia
+## License
 
 MIT
