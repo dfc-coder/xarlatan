@@ -166,7 +166,9 @@ func (c *Client) RespondStream(ctx context.Context, prompt string, onDelta func(
 		"method":  "session/prompt",
 		"params": map[string]any{
 			"sessionId": sessionID,
-			"prompt":    prompt,
+			"prompt": []any{
+				map[string]any{"type": "text", "text": prompt},
+			},
 		},
 	}); err != nil {
 		return Result{}, err
@@ -189,6 +191,7 @@ func (c *Client) RespondStream(ctx context.Context, prompt string, onDelta func(
 		}
 	}()
 
+	var streamed strings.Builder
 	for {
 		message, err := c.read()
 		if err != nil {
@@ -205,9 +208,12 @@ func (c *Client) RespondStream(ctx context.Context, prompt string, onDelta func(
 					continue
 				}
 				delta := voiceDelta(message, sessionID)
-				if delta != "" && onDelta != nil {
-					if err := onDelta(delta); err != nil {
-						return Result{}, err
+				if delta != "" {
+					streamed.WriteString(delta)
+					if onDelta != nil {
+						if err := onDelta(delta); err != nil {
+							return Result{}, err
+						}
 					}
 				}
 			case "session/request_permission":
@@ -232,6 +238,9 @@ func (c *Client) RespondStream(ctx context.Context, prompt string, onDelta func(
 			return Result{}, context.Canceled
 		}
 		reply, _ := result["content"].(string)
+		if strings.TrimSpace(reply) == "" {
+			reply = streamed.String()
+		}
 		stopReason, _ := result["stopReason"].(string)
 		return Result{Reply: strings.TrimSpace(reply), StopReason: stopReason}, nil
 	}
