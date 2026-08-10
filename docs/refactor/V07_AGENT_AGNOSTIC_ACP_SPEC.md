@@ -1,6 +1,6 @@
 # v0.7.0 — Agent-agnostic ACP Voice Gateway
 
-Issue: #68  
+Issue: #68
 Parent: #60
 
 ## 1. Purpose
@@ -186,14 +186,15 @@ confirmed barge-in
  -> cancel local turn context
  -> send ACP session/cancel best-effort
  -> drop all late agent deltas
- -> allow next turn
+ -> keep the local voice path stopped and consistent
 ```
 
 ZeroClaw can process its cancellation extension during an active turn.
 NullClaw's current stdio implementation performs a synchronous agent invocation,
 so remote compute cancellation may not be processed until that invocation
-returns. Xarlatan must therefore never wait for remote cancellation to make the
-voice path responsive or recoverable.
+returns. Xarlatan must therefore never wait for remote cancellation to stop
+local playback/TTS. While that synchronous invocation is still active the ACP
+session remains busy, so a new prompt may have to wait until the runtime returns.
 
 ## 6. Configuration
 
@@ -439,7 +440,7 @@ The report must prove at least:
 7. a long response begins speaking before the agent turn finishes when the
    runtime actually streams;
 8. `Charlatán, para` stops local playback promptly;
-9. next turn recovers;
+9. next turn recovers after the configured ACP runtime is no longer busy;
 10. no TTS self-trigger;
 11. shutdown leaves no owned audio/inference/ACP child;
 12. switching ZeroClaw <-> NullClaw requires config only when both are installed.
