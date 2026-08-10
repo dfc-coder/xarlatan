@@ -1,6 +1,7 @@
 package zeroclaw
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"io"
@@ -16,7 +17,7 @@ func TestV07ACPUsesPortablePromptContentBlocks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient() error = %v", err)
 	}
-	server := &acpTestServer{reader: newBufferedReader(serverReads), writer: serverWrites}
+	server := &acpTestServer{reader: bufio.NewReader(serverReads), writer: serverWrites}
 	t.Cleanup(func() {
 		_ = client.Close()
 		_ = serverWrites.Close()
@@ -123,8 +124,4 @@ func TestV07ACPReconstructsNullClawReplyWithoutTerminalContent(t *testing.T) {
 	if err := <-serverErr; err != nil {
 		t.Fatalf("server error = %v", err)
 	}
-}
-
-func newBufferedReader(reader io.Reader) *bufio.Reader {
-	return bufio.NewReader(reader)
 }
