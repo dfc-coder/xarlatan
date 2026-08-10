@@ -3,7 +3,6 @@ package zeroclaw
 import (
 	"bufio"
 	"context"
-	"errors"
 	"io"
 	"reflect"
 	"testing"
@@ -33,18 +32,27 @@ func TestV07ACPUsesPortablePromptContentBlocks(t *testing.T) {
 			case "session/new":
 				params, _ := message.Raw["params"].(map[string]any)
 				if params["cwd"] != "/tmp/xarlatan-v07" {
-					return errors.New("session/new did not carry the configured cwd")
+					if err := server.write(testRPCError(message.ID, "session/new did not carry the configured cwd")); err != nil {
+						return err
+					}
+					return errServerDone
 				}
 				return server.write(newSessionResult(message.ID, "s-portable"))
 			case "session/prompt":
 				params, _ := message.Raw["params"].(map[string]any)
 				blocks, ok := params["prompt"].([]any)
 				if !ok || len(blocks) != 1 {
-					return errors.New("session/prompt must use an ACP content-block array")
+					if err := server.write(testRPCError(message.ID, "session/prompt must use an ACP content-block array")); err != nil {
+						return err
+					}
+					return errServerDone
 				}
 				block, _ := blocks[0].(map[string]any)
 				if block["type"] != "text" || block["text"] != "hola" {
-					return errors.New("session/prompt text block has the wrong shape")
+					if err := server.write(testRPCError(message.ID, "session/prompt text block has the wrong shape")); err != nil {
+						return err
+					}
+					return errServerDone
 				}
 				if err := server.write(sessionTextUpdate("s-portable", "agent_message_chunk", "Hola.")); err != nil {
 					return err
@@ -123,5 +131,16 @@ func TestV07ACPReconstructsNullClawReplyWithoutTerminalContent(t *testing.T) {
 	}
 	if err := <-serverErr; err != nil {
 		t.Fatalf("server error = %v", err)
+	}
+}
+
+func testRPCError(id any, message string) map[string]any {
+	return map[string]any{
+		"jsonrpc": "2.0",
+		"id":      id,
+		"error": map[string]any{
+			"code":    -32602,
+			"message": message,
+		},
 	}
 }
