@@ -95,7 +95,11 @@ for line in sys.stdin:
     elif method == "session/new":
         print(json.dumps({"jsonrpc":"2.0","id":request_id,"result":{"sessionId":"s-runtime"}}), flush=True)
     elif method == "session/prompt":
-        prompt = message.get("params", {}).get("prompt", "")
+        raw_prompt = message.get("params", {}).get("prompt", "")
+        if isinstance(raw_prompt, list):
+            prompt = "\n\n".join(part.get("text", "") for part in raw_prompt if isinstance(part, dict))
+        else:
+            prompt = raw_prompt
         if prompt == "crash":
             os._exit(7)
         print(json.dumps({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s-runtime","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Hola desde ZeroClaw."}}}}), flush=True)
