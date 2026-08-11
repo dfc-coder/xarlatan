@@ -10,6 +10,8 @@ import (
 	"github.com/dfc-coder/xarlatan/internal/config"
 )
 
+const defaultACPMaxSessionTurns = 3
+
 func newVoiceGatewayRuntime(ctx context.Context, cfg *config.Config) (*responseRuntime, error) {
 	runtime, err := acp.StartRuntime(ctx, acp.RuntimeConfig{
 		Binary:          cfg.Agent.ACP.Binary,
@@ -24,7 +26,7 @@ func newVoiceGatewayRuntime(ctx context.Context, cfg *config.Config) (*responseR
 	if info.Name != "" || info.Title != "" || info.Version != "" {
 		slog.Info("ACP agent ready", "name", info.Name, "title", info.Title, "version", info.Version)
 	}
-	responder, err := runtime.Responder()
+	responder, err := runtime.BudgetedResponder(defaultACPMaxSessionTurns)
 	if err != nil {
 		_ = runtime.Close()
 		return nil, fmt.Errorf("ACP responder: %w", err)
