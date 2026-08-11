@@ -12,7 +12,7 @@ func TestVoiceGatewayRuntimeIsolatedFromLocalAgentStack(t *testing.T) {
 	source := readCompositionSource(t, "voice_gateway_runtime.go")
 	for _, required := range []string{
 		"acp.StartRuntime(",
-		"runtime.Responder()",
+		"runtime.BudgetedResponder(",
 	} {
 		if !strings.Contains(source, required) {
 			t.Fatalf("voice gateway runtime missing %q", required)
