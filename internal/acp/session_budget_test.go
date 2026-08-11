@@ -1,7 +1,6 @@
 package acp
 
 import (
-	"errors"
 	"fmt"
 	"reflect"
 	"testing"
@@ -70,15 +69,11 @@ func TestBudgetedResponderRotatesLogicalSessionAfterMaxTurns(t *testing.T) {
 
 func TestBudgetedResponderRejectsUninitializedRuntime(t *testing.T) {
 	if _, err := (*Runtime)(nil).BudgetedResponder(3); err == nil {
-		t.Fatal("BudgetedResponder() error = nil")
+		t.Fatal("BudgetedResponder() on nil runtime error = nil")
 	}
 
 	runtime := &Runtime{}
-	if _, err := runtime.BudgetedResponder(3); err == nil || !errors.Is(err, errors.New("ACP runtime is not initialized")) {
-		// errors.Is cannot match distinct errors.New values; keep the assertion on
-		// the presence of an error and let the exact text remain implementation detail.
-		if err == nil {
-			t.Fatal("BudgetedResponder() error = nil")
-		}
+	if _, err := runtime.BudgetedResponder(3); err == nil {
+		t.Fatal("BudgetedResponder() on uninitialized runtime error = nil")
 	}
 }
